@@ -9,17 +9,22 @@ import Foundation
 
 class GitRepository {
     let repositoryPath: URL
-
+    let authInfo: SSHAuthenticationInfo
+    
     init(repositoryPath: URL) {
         self.repositoryPath = repositoryPath
+        self.authInfo = SSHAuthenticationInfo()
     }
 
     @discardableResult
-    private func runGitCommand(_ arguments: [String]) -> (output: String, error: String) {
+    private func runGitCommand(arguments: [String]) -> (output: String, error: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.currentDirectoryURL = repositoryPath
         process.arguments = arguments
+        let sshCommand = formatGitSSHCommand(authInfo: authInfo)
+        let environment = ["GIT_SSH_COMMAND": sshCommand]
+        process.environment = environment
         
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -51,7 +56,7 @@ class GitRepository {
     }
 
     func clone(from remoteURL: URL) -> Bool {
-        let result = runGitCommand(["clone", remoteURL.absoluteString, repositoryPath.path])
+        let result = runGitCommand(arguments: ["clone", remoteURL.absoluteString, repositoryPath.path])
         if !result.error.isEmpty {
             print("Git Clone Error: \(result.error)")
             return false
@@ -60,7 +65,7 @@ class GitRepository {
     }
 
     func addAll() -> Bool {
-        let result = runGitCommand(["add", "--all"])
+        let result = runGitCommand(arguments: ["add", "--all"])
         if !result.error.isEmpty {
             print("Git Add Error: \(result.error)")
             return false
@@ -69,7 +74,7 @@ class GitRepository {
     }
 
     func commit(message: String) -> Bool {
-        let result = runGitCommand(["commit", "-m", message])
+        let result = runGitCommand(arguments: ["commit", "-m", message])
         if !result.error.isEmpty {
             print("Git Commit Error: \(result.error)")
             return false
@@ -78,7 +83,7 @@ class GitRepository {
     }
 
     func push() -> Bool {
-        let result = runGitCommand(["push"])
+        let result = runGitCommand(arguments: ["push"])
         if !result.error.isEmpty && result.error != "Everything up-to-date" {
             print("Git Push Error: \(result.error)")
             return false
@@ -87,7 +92,7 @@ class GitRepository {
     }
 
     func pull() -> Bool {
-        let result = runGitCommand(["pull"])
+        let result = runGitCommand(arguments: ["pull"])
         if !result.error.isEmpty {
             print("Git Pull Error: \(result.error)")
             return false

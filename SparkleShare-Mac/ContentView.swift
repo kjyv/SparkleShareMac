@@ -15,14 +15,17 @@ class AppViewModel: ObservableObject {
    
     private var directoryMonitor: DirectoryMonitor!
     private var gitRepositories: [GitRepository] = []
-        
+    
+
     init() {
-        // set dummy repo directories
-        // TODO: Load configuration from file (application support probably)
-        monitoredDirectories.append(URL(fileURLWithPath: "/Users/stefan/SparkleShare/syncbox.duckdns.org/notes/"))
-        
+        monitoredDirectories = loadDirectoriesFromPlist()
+       
+        updateGitRepositories()
         setupDirectoryMonitor()
-        
+    }
+    
+    private func updateGitRepositories() {
+        gitRepositories.removeAll()
         // create Git handlers for all directories
         monitoredDirectories.forEach { localPathURL in
             gitRepositories.append(GitRepository(repositoryPath: localPathURL))
@@ -108,8 +111,10 @@ class AppViewModel: ObservableObject {
     //
         
     func addDirectory(_ url: URL) {
+        objectWillChange.send() // Notify SwiftUI of the upcoming change
         monitoredDirectories.append(url)
-        //TODO: Save the updated list to the configuration file
+        saveDirectoriesToPlist(directories: monitoredDirectories)
+        updateGitRepositories()
     }
         
     func pullAllDirectories() {
@@ -117,21 +122,55 @@ class AppViewModel: ObservableObject {
             syncChangesDown(in: directory)
         }
     }
+    
+    struct MonitoredDirectory: Codable {
+        let directory: String
+    }
+
+    func saveDirectoriesToPlist(directories: [URL], fileName: String = "monitoredDirs.plist") {
+        let entries = directories.map { MonitoredDirectory(directory: $0.path) }
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .xml
+        
+        do {
+            let data = try encoder.encode(entries)
+            if let appSupportPath = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let directoryPath = appSupportPath.appendingPathComponent("SparkleShareMac")
+                try FileManager.default.createDirectory(at: directoryPath, withIntermediateDirectories: true, attributes: nil)
+                let plistPath = directoryPath.appendingPathComponent(fileName)
+                try data.write(to: plistPath)
+                print("Directories saved to plist at: \(plistPath)")
+            }
+        } catch {
+            print("Error saving directories to plist: \(error)")
+        }
+    }
+    
+    func loadDirectoriesFromPlist(fileName: String = "monitoredDirs.plist") -> [URL] {
+        if let appSupportPath = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let plistPath = appSupportPath.appendingPathComponent("SparkleShareMac").appendingPathComponent(fileName)
+            if let data = try? Data(contentsOf: plistPath) {
+                let decoder = PropertyListDecoder()
+                if let directories = try? decoder.decode([MonitoredDirectory].self, from: data) {
+                    return directories.map { URL(fileURLWithPath: $0.directory) }
+                }
+            }
+        }
+        return []
+    }
 }
+
 
 struct ContentView: View {
     @EnvironmentObject var viewModel: AppViewModel
     
     var body: some View {
         VStack {
-            Text("Synced remote projects:")
             List(viewModel.monitoredDirectories, id: \.self) { directory in
                 Text(directory.path)
             }
-            Button(action: {
+            Button("Add existing directory") {
                 addRemoteProject()
-            }) {
-                Text("Sync with remote project")
             }
         }
         .frame(width: 400, height: 300)

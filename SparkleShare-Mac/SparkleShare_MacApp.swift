@@ -9,16 +9,20 @@ import SwiftUI
 
 @main
 struct SparkleShare: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var viewModel = AppViewModel()
-
+    @NSApplicationDelegateAdaptor var appDelegate: AppDelegate
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
+                .onAppear {
+                    appDelegate.viewModel = viewModel
+                    appDelegate.setup()
+                }
         }
         .commands {
-            CommandMenu("SparkleShare Clone") {
+            CommandMenu("SparkleShare Mac") {
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
@@ -30,13 +34,16 @@ struct SparkleShare: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
-    var viewModel = AppViewModel()
     var pullDirectoriesTimer: Timer?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    var viewModel: AppViewModel!
+    
+    func applicationDidFinishLaunching(_ aNotification: Notification) {
         setupStatusBar()
         ProcessInfo.processInfo.disableAutomaticTermination("file watcher needs to run")
-        
+    }
+    
+    func setup() {
         setupPullDirectoriesTimer()
         print("Checking all remote directories for changes...")
         pullAllDirectories()

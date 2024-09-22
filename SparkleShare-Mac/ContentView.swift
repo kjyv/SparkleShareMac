@@ -88,8 +88,16 @@ class AppViewModel: ObservableObject {
             }
     }
     
-    func syncChangesDown(in directory: URL, changedFiles: [String]) {
-        return
+    func syncChangesDown(in directory: URL) {
+        gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path)}
+            .forEach { repository in
+                guard repository.pull() else {
+                    print("Error pulling changes from \(repository.repositoryPath.path)")
+                    return
+                }
+                
+                print("Pulled changes from \(repository.repositoryPath.path)")
+            }
     }
         
     //
@@ -101,8 +109,10 @@ class AppViewModel: ObservableObject {
         //TODO: Save the updated list to the configuration file
     }
         
-    func forceUpdate(in directory: URL) {
-        //TODO
+    func pullAllDirectories() {
+        for directory in monitoredDirectories {
+            syncChangesDown(in: directory)
+        }
     }
 }
 

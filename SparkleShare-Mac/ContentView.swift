@@ -73,8 +73,11 @@ class AppViewModel: ObservableObject {
                     print("Error adding changes in \(repository.repositoryPath.path)")
                     return
                 }
+                //remove configured directory prefix from first filename for commit message
+                var message = changedFiles.first ?? "Sync"
+                message.replace(directory.path, with: "")
                 
-                guard repository.commit(message: "/ \(changedFiles.first ?? "Sync")") else {
+                guard repository.commit(message: "/ '\(message)'") else {
                     print("Error committing changes to \(repository.repositoryPath.path)")
                     return
                 }

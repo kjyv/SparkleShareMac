@@ -68,8 +68,7 @@ class DirectoryMonitor {
             &context,
             pathsToWatch,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            //10.0, // Latency in seconds
-            1.0,
+            10.0, // Latency in seconds
             UInt32(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
         )
 

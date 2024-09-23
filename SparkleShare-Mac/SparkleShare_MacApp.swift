@@ -9,68 +9,68 @@ import SwiftUI
 
 @main
 struct SparkleShare: App {
-    @StateObject private var viewModel = AppViewModel()
     @NSApplicationDelegateAdaptor var appDelegate: AppDelegate
     
-    init() {
-        appDelegate.viewModel = viewModel
-        appDelegate.setup()
-    }
-    
     var body: some Scene {
-//        WindowGroup {
-//            ContentView()
-//                .environmentObject(viewModel)
-//                .onAppear {
-//                    appDelegate.viewModel = viewModel
-//                    appDelegate.setup()
-//                }
-//        }
-//        .commands {
-//            CommandMenu("SparkleShare Mac") {
-//                Button("Quit") {
-//                    NSApplication.shared.terminate(nil)
-//                }
-//                .keyboardShortcut("q")
-//            }
-//        }
-        Settings { // Optional settings view or an empty scene
+        //dummy view for no window at start
+        Settings {
             Text("Settings")
         }
     }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    static var shared: AppDelegate!
     weak var window: NSWindow?
-    var viewModel: AppViewModel!
-    
+    private var viewModel = AppViewModel()
+    var syncHandler: SyncHandler = SyncHandler()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
+    
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         setupStatusBar()
         ProcessInfo.processInfo.disableAutomaticTermination("file watcher needs to run")
         // hide dock icon
         NSApp.setActivationPolicy(.accessory)
-    }
-    
-    func setup() {
+        
+        //setup observer on sleep wakeup to pull changes right away
+        NSWorkspace.shared.notificationCenter.addObserver(self,
+                                                          selector: #selector(handleWakeFromSleep),
+                                                          name: NSWorkspace.didWakeNotification,
+                                                          object: nil)
         setupPullDirectoriesTimer()
         print("Checking all remote directories for changes...")
         pullAllDirectories()
     }
-
+    
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Monitor")
-            let menu = NSMenu()
-            menu.addItem(NSMenuItem(title: "Add directory", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
-            menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "s"))
-            menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
-            statusItem?.menu = menu
+        setIdleStatus()
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Add directory", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
+        menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        statusItem?.menu = menu
+    }
+    
+    @objc func setSyncStatus() {
+        // Set loading icon
+        DispatchQueue.main.async {
+            //run on UI thread
+            self.statusItem?.button?.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Syncing")
+        }
+    }
+    
+    @objc func setIdleStatus() {
+        // Set original icon after sync
+        DispatchQueue.main.async {
+            self.statusItem?.button?.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Idle")
         }
     }
     
@@ -84,7 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             newWindow.delegate = self
             newWindow.center()
             newWindow.setFrameAutosaveName("SparkleShare: Add Directory")
-            newWindow.contentView = NSHostingView(rootView: ContentView().environmentObject(viewModel))
+            newWindow.contentView = NSHostingView(rootView: ContentView().environmentObject(viewModel).environmentObject(syncHandler))
             newWindow.isReleasedWhenClosed = false
             window = newWindow
         }
@@ -93,16 +93,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     
+    @objc private func pullAllDirectories() {
+        syncHandler.pullAllDirectories()
+    }
+
     private func setupPullDirectoriesTimer() {
         pullDirectoriesTimer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(pullAllDirectories), userInfo: nil, repeats: true)
+    }
+    
+    @objc private func handleWakeFromSleep(notification: Notification) {
+        print("Detected wake from sleep, checking for updates")
+        pullAllDirectories()
     }
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
-    
-    @objc private func pullAllDirectories() {
-        viewModel.pullAllDirectories()
-    }
+
 }
 

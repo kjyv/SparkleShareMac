@@ -22,14 +22,15 @@ struct SparkleShare: App {
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
     weak var window: NSWindow?
-    private var viewModel = AppViewModel()
-    var syncHandler: SyncHandler = SyncHandler()
+    var syncHandler = SyncHandler()
+    private var directoryViewModel = AddDirectoryViewModel()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
     
     override init() {
         super.init()
         AppDelegate.shared = self
+        directoryViewModel.syncHandler = syncHandler
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -52,7 +53,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setIdleStatus()
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Add directory", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
+        menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
         menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
@@ -83,8 +85,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             )
             newWindow.delegate = self
             newWindow.center()
-            newWindow.setFrameAutosaveName("SparkleShare: Add Directory")
-            newWindow.contentView = NSHostingView(rootView: ContentView().environmentObject(viewModel).environmentObject(syncHandler))
+            newWindow.setFrameAutosaveName("Settings")
+            newWindow.title = "SparkleShare Settings"
+            newWindow.contentView = NSHostingView(rootView: AddDirectoryView().environmentObject(directoryViewModel).environmentObject(syncHandler))
             newWindow.isReleasedWhenClosed = false
             window = newWindow
         }
@@ -92,7 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
     @objc private func pullAllDirectories() {
         syncHandler.pullAllDirectories()
     }

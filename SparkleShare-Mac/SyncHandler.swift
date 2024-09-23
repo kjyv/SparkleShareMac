@@ -120,6 +120,23 @@ class SyncHandler: ObservableObject {
         }
     }
     
+    func cloneRepository(from url: URL, to localParentUrl: URL, errorMessage: inout String) -> URL? {
+        let gitRepository = GitRepository(repositoryPath: localParentUrl)
+        let result = gitRepository.clone(from: url, errorMessage: &errorMessage)
+        gitRepository.setRepositoryPath(to: localParentUrl.appendingPathComponent(url.lastPathComponent))
+        
+        if result == true {
+            gitRepositories.append(gitRepository)
+            monitoredDirectories.append(gitRepository.repositoryPath)
+            return gitRepository.repositoryPath
+        } else {
+            return nil
+        }
+    }
+    
+    
+    // Save and Load to plist functionality
+    //
     struct MonitoredDirectory: Codable {
         let directory: String
     }

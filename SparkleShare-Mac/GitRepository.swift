@@ -8,12 +8,16 @@
 import Foundation
 
 class GitRepository {
-    let repositoryPath: URL
+    var repositoryPath: URL
     let authInfo: SSHAuthenticationInfo
     
     init(repositoryPath: URL) {
         self.repositoryPath = repositoryPath
         self.authInfo = SSHAuthenticationInfo()
+    }
+    
+    func setRepositoryPath(to path: URL) {
+        repositoryPath = path
     }
 
     @discardableResult
@@ -56,10 +60,11 @@ class GitRepository {
         return (success, output, error)
     }
 
-    func clone(from remoteURL: URL) -> Bool {
-        let result = runGitCommand(arguments: ["clone", remoteURL.absoluteString, repositoryPath.path])
+    func clone(from remoteURL: URL, errorMessage: inout String) -> Bool {
+        let result = runGitCommand(arguments: ["clone", remoteURL.absoluteString])
         if !result.success && !result.error.isEmpty {
             print("Error during \"git clone\": \(result.error)")
+            errorMessage = result.error
             return false
         }
         return true

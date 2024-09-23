@@ -12,35 +12,46 @@ struct SparkleShare: App {
     @StateObject private var viewModel = AppViewModel()
     @NSApplicationDelegateAdaptor var appDelegate: AppDelegate
     
+    init() {
+        appDelegate.viewModel = viewModel
+        appDelegate.setup()
+    }
+    
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(viewModel)
-                .onAppear {
-                    appDelegate.viewModel = viewModel
-                    appDelegate.setup()
-                }
-        }
-        .commands {
-            CommandMenu("SparkleShare Mac") {
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .keyboardShortcut("q")
-            }
+//        WindowGroup {
+//            ContentView()
+//                .environmentObject(viewModel)
+//                .onAppear {
+//                    appDelegate.viewModel = viewModel
+//                    appDelegate.setup()
+//                }
+//        }
+//        .commands {
+//            CommandMenu("SparkleShare Mac") {
+//                Button("Quit") {
+//                    NSApplication.shared.terminate(nil)
+//                }
+//                .keyboardShortcut("q")
+//            }
+//        }
+        Settings { // Optional settings view or an empty scene
+            Text("Settings")
         }
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    weak var window: NSWindow?
+    var viewModel: AppViewModel!
+    
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
 
-    var viewModel: AppViewModel!
-    
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         setupStatusBar()
         ProcessInfo.processInfo.disableAutomaticTermination("file watcher needs to run")
+        // hide dock icon
+        NSApp.setActivationPolicy(.accessory)
     }
     
     func setup() {
@@ -54,24 +65,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Monitor")
             let menu = NSMenu()
-            menu.addItem(NSMenuItem(title: "Open App", action: #selector(openApp), keyEquivalent: "o"))
+            menu.addItem(NSMenuItem(title: "Add directory", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "c"))
+            menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "s"))
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
             statusItem?.menu = menu
         }
     }
     
-    private func setupPullDirectoriesTimer() {
-        pullDirectoriesTimer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(pullAllDirectories), userInfo: nil, repeats: true)
+    @objc func showAddDirectoryWindow() {
+        if window == nil {
+            let newWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered, defer: false
+            )
+            newWindow.delegate = self
+            newWindow.center()
+            newWindow.setFrameAutosaveName("SparkleShare: Add Directory")
+            newWindow.contentView = NSHostingView(rootView: ContentView().environmentObject(viewModel))
+            newWindow.isReleasedWhenClosed = false
+            window = newWindow
+        }
+        //bring window to front
+        window?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
     }
     
-    @objc func openApp() {
-        NSApp.activate(ignoringOtherApps: true)
-        
-        //bring possibly open window to the front
-        NSApp.keyWindow?.orderFront(nil)
+    private func setupPullDirectoriesTimer() {
+        pullDirectoriesTimer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(pullAllDirectories), userInfo: nil, repeats: true)
     }
 
     @objc private func quitApp() {

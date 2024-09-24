@@ -120,6 +120,12 @@ class SyncHandler: ObservableObject {
         }
     }
     
+    func pushAllDirectories() {
+        for directory in monitoredDirectories {
+            syncChangesUp(in: directory, changedFiles: [])
+        }
+    }
+    
     func cloneRepository(from url: URL, to localParentUrl: URL, errorMessage: inout String) -> URL? {
         let gitRepository = GitRepository(repositoryPath: localParentUrl)
         let result = gitRepository.clone(from: url, errorMessage: &errorMessage)

@@ -45,8 +45,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                                           name: NSWorkspace.didWakeNotification,
                                                           object: nil)
         setupPullDirectoriesTimer()
-        print("Checking all remote directories for changes...")
-        pullAllDirectories()
+        print("Checking all directories for changes...")
+        syncAllDirectories()
     }
     
     private func setupStatusBar() {
@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
-        menu.addItem(NSMenuItem(title: "Force sync", action: #selector(pullAllDirectories), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "Force sync", action: #selector(syncAllDirectories), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
         statusItem?.menu = menu
@@ -95,9 +95,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
-
+    
     @objc private func pullAllDirectories() {
         syncHandler.pullAllDirectories()
+    }
+
+    @objc private func syncAllDirectories() {
+        syncHandler.pullAllDirectories()
+        syncHandler.pushAllDirectories()
     }
 
     private func setupPullDirectoriesTimer() {

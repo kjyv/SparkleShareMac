@@ -80,6 +80,7 @@ struct AddDirectoryView: View {
             }
         }
         .padding()
+        .onDisappear(perform: hide)
         .sheet(isPresented: $viewModel.isShowingCloneSheet) {
             CloneRepositoryView()
                 .environmentObject(viewModel)
@@ -92,5 +93,10 @@ struct AddDirectoryView: View {
             let directory = syncHandler.monitoredDirectories[index]
             viewModel.removeDirectory(directory)
         }
+    }
+    
+    func hide() {
+        // hide dock icon
+        NSApp.setActivationPolicy(.accessory)
     }
 }

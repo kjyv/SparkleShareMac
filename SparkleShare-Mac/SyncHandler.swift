@@ -78,7 +78,7 @@ class SyncHandler: ObservableObject {
             .filter { $0.repositoryPath.path.hasPrefix(directory.path) }
             .forEach { repository in
                 guard repository.addAll() else {
-                    print("Error adding changes in \(repository.repositoryPath.path)")
+                    print("Error adding changes for \(repository.repositoryPath.path)")
                     return
                 }
                 //remove configured directory prefix from first filename for commit message
@@ -86,16 +86,16 @@ class SyncHandler: ObservableObject {
                 message.replace(directory.path, with: "")
                 
                 guard repository.commit(message: "/ '\(message)'") else {
-                    print("Error committing changes to \(repository.repositoryPath.path)")
+                    print("Error committing changes for \(repository.repositoryPath.path)")
                     return
                 }
                 
                 guard repository.push() else {
-                    print("Error pushing changes to \(repository.repositoryPath.path)")
+                    print("Error pushing changes for \(repository.repositoryPath.path)")
                     return
                 }
                 
-                print("Changes pushed to \(repository.repositoryPath.path)")
+                print("Changes pushed for \(repository.repositoryPath.path)")
             }
         appDelegate().setIdleStatus()
     }
@@ -105,11 +105,11 @@ class SyncHandler: ObservableObject {
         gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path)}
         .forEach { repository in
             guard repository.pull() else {
-                print("Error pulling changes from \(repository.repositoryPath.path)")
+                print("Error pulling changes for \(repository.repositoryPath.path)")
                 return
             }
             
-            print("Pulled changes from \(repository.repositoryPath.path)")
+            print("Pulled changes for \(repository.repositoryPath.path)")
         }
         appDelegate().setIdleStatus()
     }
@@ -126,9 +126,11 @@ class SyncHandler: ObservableObject {
         }
     }
     
-    func cloneRepository(from url: URL, to localParentUrl: URL, errorMessage: inout String) -> URL? {
+    func cloneRepository(from url: URL, to localParentUrl: URL, progressHandler: @escaping (String) -> Void) -> URL? {
         let gitRepository = GitRepository(repositoryPath: localParentUrl)
-        let result = gitRepository.clone(from: url, errorMessage: &errorMessage)
+        let result = gitRepository.clone(from: url, progressHandler: { output in            
+            progressHandler(output)
+        })
         gitRepository.setRepositoryPath(to: localParentUrl.appendingPathComponent(url.lastPathComponent))
         
         if result == true {

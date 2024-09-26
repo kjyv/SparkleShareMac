@@ -12,9 +12,12 @@ struct CloneRepositoryView: View {
     @EnvironmentObject var viewModel: AddDirectoryViewModel
     @EnvironmentObject var syncHandler: SyncHandler
     
-    @State private var gitURL: String = ""
     @State private var isCloning: Bool = false
+    
     @State private var errorMessage: String?
+    @State private var progressMessage: String = ""
+    
+    @State private var gitURL: String = ""
     @State private var localParentPath: String = ""
     
     var body: some View {
@@ -46,6 +49,9 @@ struct CloneRepositoryView: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            Text(progressMessage)
+                .foregroundColor(.blue)
+                .padding(.bottom, 10)
             
             HStack {
                 Button(action: { closeView() }) {
@@ -96,12 +102,19 @@ struct CloneRepositoryView: View {
         }
         isCloning = true
         errorMessage = nil
+        progressMessage = ""
         let localParentUrl = URL(fileURLWithPath: localParentPath)
         
         DispatchQueue.global().async {
             var gitErrorMessage = ""
-            let clonedDirectory = self.syncHandler.cloneRepository(from: url, to: localParentUrl, errorMessage: &gitErrorMessage)
+            let clonedDirectory = self.syncHandler.cloneRepository(from: url, to: localParentUrl, progressHandler: { output in
+                DispatchQueue.main.async {
+                    progressMessage = output
+                }
+            })
             if (clonedDirectory == nil) {
+                gitErrorMessage = progressMessage
+                progressMessage = ""
                 self.errorMessage = "Failed to clone repository:\n" + gitErrorMessage
             }
             self.isCloning = false

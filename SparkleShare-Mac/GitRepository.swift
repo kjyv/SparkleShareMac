@@ -59,15 +59,49 @@ class GitRepository {
         let success = process.terminationStatus == 0
         return (success, output, error)
     }
+    
+    @discardableResult
+    private func runGitCommandWithProgress(_ arguments: [String], progressHandler: @escaping (String) -> Void) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.currentDirectoryURL = repositoryPath
+        process.arguments = arguments
+        let sshCommand = formatGitSSHCommand(authInfo: authInfo)
+        let environment = ["GIT_SSH_COMMAND": sshCommand]
+        process.environment = environment
 
-    func clone(from remoteURL: URL, errorMessage: inout String) -> Bool {
-        let result = runGitCommand(arguments: ["clone", remoteURL.absoluteString])
-        if !result.success && !result.error.isEmpty {
-            print("Error during \"git clone\": \(result.error)")
-            errorMessage = result.error
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe // Git outputs progress on stderr
+        
+        let outputHandle = outputPipe.fileHandleForReading
+        outputHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            if let output = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
+                    progressHandler(output)
+                }
+            }
+        }
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            outputHandle.readabilityHandler = nil
             return false
         }
-        return true
+        
+        outputHandle.readabilityHandler = nil
+        return process.terminationStatus == 0
+    }
+
+    func clone(from remoteURL: URL, progressHandler: @escaping (String) -> Void) -> Bool {
+        let result = self.runGitCommandWithProgress(["clone", "--progress", remoteURL.absoluteString], progressHandler: progressHandler)
+        if !result {
+            print("Error during \"git clone\"")
+        }
+        return result
     }
 
     func addAll() -> Bool {

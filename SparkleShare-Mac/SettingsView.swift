@@ -94,6 +94,37 @@ struct SettingsView: View {
     @ObservedObject var launchAtLoginManager = LaunchAtLoginManager.shared
 
     var body: some View {
+        TabView {
+            ProjectsTab(viewModel: viewModel, syncHandler: syncHandler, launchAtLoginManager: launchAtLoginManager)
+                .tabItem {
+                    Label("Projects", systemImage: "folder")
+                }
+
+            AboutTab()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
+        }
+        .frame(minWidth: 450, minHeight: 350)
+        .onDisappear(perform: hide)
+        .sheet(isPresented: $viewModel.isShowingCloneSheet) {
+            CloneRepositoryView()
+                .environmentObject(viewModel)
+                .environmentObject(syncHandler)
+        }
+    }
+
+    func hide() {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+struct ProjectsTab: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject var syncHandler: SyncHandler
+    @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+
+    var body: some View {
         VStack(alignment: .leading) {
             Text("Synced Projects")
                 .font(.headline)
@@ -115,8 +146,7 @@ struct SettingsView: View {
                 }
                 .onDelete(perform: deleteDirectory)
             }
-            .frame(minWidth: 400, minHeight: 200)
-            .presentationSizing(.fitted)
+            .frame(minHeight: 150)
 
             HStack {
                 Button("Add remote project") {
@@ -137,23 +167,52 @@ struct SettingsView: View {
                 .padding(.top, 12)
         }
         .padding(20)
-        .onDisappear(perform: hide)
-        .sheet(isPresented: $viewModel.isShowingCloneSheet) {
-            CloneRepositoryView()
-                .environmentObject(viewModel)
-                .environmentObject(syncHandler)
-        }
     }
-    
+
     private func deleteDirectory(at offsets: IndexSet) {
         for index in offsets {
             let directory = syncHandler.monitoredDirectories[index]
             viewModel.removeDirectory(directory)
         }
     }
-    
-    func hide() {
-        // hide dock icon
-        NSApp.setActivationPolicy(.accessory)
+}
+
+struct AboutTab: View {
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 80, height: 80)
+
+            Text("SparkleShare")
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Version \(appVersion) (\(buildNumber))")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Link(destination: URL(string: "https://github.com/kjyv/SparkleShareMac")!) {
+                HStack {
+                    Image(systemName: "link")
+                    Text("View on GitHub")
+                }
+            }
+            .padding(.top, 10)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
     }
 }

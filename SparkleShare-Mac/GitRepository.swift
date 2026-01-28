@@ -27,7 +27,8 @@ class GitRepository {
         process.currentDirectoryURL = repositoryPath
         process.arguments = arguments
         let sshCommand = formatGitSSHCommand(authInfo: authInfo)
-        let environment = ["GIT_SSH_COMMAND": sshCommand]
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_SSH_COMMAND"] = sshCommand
         process.environment = environment
         
         let outputPipe = Pipe()
@@ -67,7 +68,8 @@ class GitRepository {
         process.currentDirectoryURL = repositoryPath
         process.arguments = arguments
         let sshCommand = formatGitSSHCommand(authInfo: authInfo)
-        let environment = ["GIT_SSH_COMMAND": sshCommand]
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_SSH_COMMAND"] = sshCommand
         process.environment = environment
 
         let outputPipe = Pipe()

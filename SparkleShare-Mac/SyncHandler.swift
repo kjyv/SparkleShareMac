@@ -10,7 +10,8 @@ import AppKit
 
 class SyncHandler: ObservableObject {
     var monitoredDirectories: [URL] = []
-   
+    var errorStore: ErrorStore?
+
     private var directoryMonitor: DirectoryMonitor!
     private var gitRepositories: [GitRepository] = []
     
@@ -77,24 +78,42 @@ class SyncHandler: ObservableObject {
         gitRepositories
             .filter { $0.repositoryPath.path.hasPrefix(directory.path) }
             .forEach { repository in
-                guard repository.addAll() else {
+                let addResult = repository.addAll()
+                guard addResult.success else {
                     print("Error adding changes for \(repository.repositoryPath.path)")
+                    errorStore?.addError(
+                        repositoryPath: repository.repositoryPath.path,
+                        operationType: .add,
+                        errorMessage: addResult.error.isEmpty ? "Failed to add changes to staging area" : addResult.error
+                    )
                     return
                 }
                 //remove configured directory prefix from first filename for commit message
                 var message = changedFiles.first ?? "Sync"
                 message.replace(directory.path, with: "")
-                
-                guard repository.commit(message: "/ '\(message)'") else {
+
+                let commitResult = repository.commit(message: "/ '\(message)'")
+                guard commitResult.success else {
                     print("Error committing changes for \(repository.repositoryPath.path)")
+                    errorStore?.addError(
+                        repositoryPath: repository.repositoryPath.path,
+                        operationType: .commit,
+                        errorMessage: commitResult.error.isEmpty ? "Failed to commit changes" : commitResult.error
+                    )
                     return
                 }
-                
-                guard repository.push() else {
+
+                let pushResult = repository.push()
+                guard pushResult.success else {
                     print("Error pushing changes for \(repository.repositoryPath.path)")
+                    errorStore?.addError(
+                        repositoryPath: repository.repositoryPath.path,
+                        operationType: .push,
+                        errorMessage: pushResult.error.isEmpty ? "Failed to push changes to remote" : pushResult.error
+                    )
                     return
                 }
-                
+
                 print("Changes pushed for \(repository.repositoryPath.path)")
             }
         appDelegate().setIdleStatus()
@@ -104,11 +123,17 @@ class SyncHandler: ObservableObject {
         appDelegate().setSyncStatus()
         gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path)}
         .forEach { repository in
-            guard repository.pull() else {
+            let pullResult = repository.pull()
+            guard pullResult.success else {
                 print("Error pulling changes for \(repository.repositoryPath.path)")
+                errorStore?.addError(
+                    repositoryPath: repository.repositoryPath.path,
+                    operationType: .pull,
+                    errorMessage: pullResult.error.isEmpty ? "Failed to pull changes from remote" : pullResult.error
+                )
                 return
             }
-            
+
             print("Pulled changes for \(repository.repositoryPath.path)")
         }
         appDelegate().setIdleStatus()
@@ -122,6 +147,7 @@ class SyncHandler: ObservableObject {
     
     func pushAllDirectories() {
         for directory in monitoredDirectories {
+            //TODO: determine changed files for commit message?
             syncChangesUp(in: directory, changedFiles: [])
         }
     }

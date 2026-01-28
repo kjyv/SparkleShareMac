@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 @main
 struct SparkleShare: App {
@@ -22,15 +23,28 @@ struct SparkleShare: App {
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
     weak var window: NSWindow?
+    weak var errorWindow: NSWindow?
     var syncHandler = SyncHandler()
+    var errorStore = ErrorStore()
     private var settingsViewModel = SettingsViewModel()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
-    
+    private var errorStoreSubscription: AnyCancellable?
+    private var viewErrorsMenuItem: NSMenuItem?
+
     override init() {
         super.init()
         AppDelegate.shared = self
         settingsViewModel.syncHandler = syncHandler
+        syncHandler.errorStore = errorStore
+
+        // Subscribe to error store changes to update menu bar icon and menu item visibility
+        errorStoreSubscription = errorStore.$errors
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] errors in
+                self?.updateStatusIcon()
+                self?.viewErrorsMenuItem?.isHidden = errors.isEmpty
+            }
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -58,6 +72,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettingsWindow), keyEquivalent: "a"))
+
+        viewErrorsMenuItem = NSMenuItem(title: "View Errors", action: #selector(showErrorWindow), keyEquivalent: "e")
+        viewErrorsMenuItem?.isHidden = true
+        menu.addItem(viewErrorsMenuItem!)
+
         menu.addItem(NSMenuItem(title: "Force sync", action: #selector(syncAllDirectories), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
@@ -73,9 +92,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     @objc func setIdleStatus() {
-        // Set original icon after sync
+        // Set original icon after sync (or error icon if there are errors)
         DispatchQueue.main.async {
-            self.statusItem?.button?.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Idle")
+            if self.errorStore.hasErrors {
+                self.setErrorStatus()
+            } else {
+                self.statusItem?.button?.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Idle")
+            }
+        }
+    }
+
+    @objc func setErrorStatus() {
+        DispatchQueue.main.async {
+            self.statusItem?.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Errors")
+        }
+    }
+
+    private func updateStatusIcon() {
+        // Only update if not currently syncing
+        if self.statusItem?.button?.image?.name() != "arrow.triangle.2.circlepath" {
+            setIdleStatus()
         }
     }
     
@@ -98,7 +134,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
+    @objc func showErrorWindow() {
+        if errorWindow == nil {
+            let newWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered, defer: false
+            )
+            newWindow.delegate = self
+            newWindow.center()
+            newWindow.setFrameAutosaveName("Errors")
+            newWindow.title = "Sync Errors"
+            newWindow.contentView = NSHostingView(rootView: ErrorListView().environmentObject(errorStore))
+            newWindow.isReleasedWhenClosed = false
+            errorWindow = newWindow
+        }
+        //bring window to front
+        errorWindow?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc private func pullAllDirectories() {
         syncHandler.pullAllDirectories()
     }

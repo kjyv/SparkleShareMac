@@ -1,0 +1,161 @@
+//
+//  ErrorListView.swift
+//  SparkleShare-Mac
+//
+//  Created by Stefan Bethge on 28.01.26.
+//
+
+import SwiftUI
+
+struct ErrorRowView: View {
+    let error: SyncError
+    @State private var isExpanded: Bool = false
+
+    private var formattedTimestamp: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter.string(from: error.timestamp)
+    }
+
+    private var operationIcon: String {
+        switch error.operationType {
+        case .add:
+            return "plus.circle"
+        case .commit:
+            return "checkmark.circle"
+        case .push:
+            return "arrow.up.circle"
+        case .pull:
+            return "arrow.down.circle"
+        case .clone:
+            return "doc.on.doc"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: operationIcon)
+                    .foregroundColor(.red)
+                    .font(.title2)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(error.operationType.rawValue)
+                            .font(.headline)
+                        Spacer()
+                        Text(formattedTimestamp)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text(error.repositoryPath)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if !isExpanded {
+                        Text(error.errorMessage)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                }
+
+                Button(action: { isExpanded.toggle() }) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(BorderlessButtonStyle())
+            }
+            .padding(.vertical, 8)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Full Error Message:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    ScrollView {
+                        Text(error.errorMessage)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 150)
+                    .padding(8)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(4)
+                }
+                .padding(.leading, 36)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+struct ErrorListView: View {
+    @EnvironmentObject var errorStore: ErrorStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("Sync Errors")
+                    .font(.headline)
+                Spacer()
+                if errorStore.hasErrors {
+                    Button("Clear All") {
+                        errorStore.clearErrors()
+                    }
+                }
+            }
+            .padding()
+
+            Divider()
+
+            // Content
+            if errorStore.errors.isEmpty {
+                VStack {
+                    Spacer()
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 48))
+                        .foregroundColor(.green)
+                    Text("No errors")
+                        .font(.title2)
+                        .padding(.top, 8)
+                    Text("All sync operations completed successfully")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(errorStore.errors.reversed()) { error in
+                        ErrorRowView(error: error)
+                    }
+                    .onDelete(perform: deleteErrors)
+                }
+            }
+        }
+        .frame(minWidth: 450, minHeight: 300)
+        .onDisappear {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    private func deleteErrors(at offsets: IndexSet) {
+        // Since we reversed the array for display, we need to convert indices
+        let reversedErrors = errorStore.errors.reversed()
+        for index in offsets {
+            let error = Array(reversedErrors)[index]
+            errorStore.removeError(error)
+        }
+    }
+}

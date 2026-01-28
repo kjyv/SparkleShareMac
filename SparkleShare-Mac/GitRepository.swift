@@ -106,39 +106,39 @@ class GitRepository {
         return result
     }
 
-    func addAll() -> Bool {
+    func addAll() -> (success: Bool, error: String) {
         let result = runGitCommand(arguments: ["add", "--all"])
         if !result.success && !result.error.isEmpty {
             print("Error during \"git add\": \(result.error)")
-            return false
+            return (false, result.error)
         }
-        return true
+        return (true, "")
     }
 
-    func commit(message: String) -> Bool {
+    func commit(message: String) -> (success: Bool, error: String) {
         let result = runGitCommand(arguments: ["commit", "-m", message])
         if !result.success && !result.error.isEmpty {
             print("Error during \"git commit\": \(result.error)")
-            return false
+            return (false, result.error)
         }
-        return true
+        return (true, "")
     }
 
-    func push() -> Bool {
+    func push() -> (success: Bool, error: String) {
         let result = runGitCommand(arguments: ["push"])
         if !result.success && !result.error.isEmpty && result.error != "Everything up-to-date" {
             print("Error during \"git push\": \(result.error)")
-            return false
+            return (false, result.error)
         }
-        return true
+        return (true, "")
     }
 
-    func pull() -> Bool {
+    func pull() -> (success: Bool, error: String) {
         let result = runGitCommand(arguments: ["pull"])
         if !result.success && !result.error.isEmpty {
             print("Error during \"git pull\": \(result.error)")
-            return false
+            return (false, result.error)
         }
-        return true
+        return (true, "")
     }
 }

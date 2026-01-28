@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct CloneRepositoryView: View {
-    @EnvironmentObject var viewModel: AddDirectoryViewModel
+    @EnvironmentObject var viewModel: SettingsViewModel
     @EnvironmentObject var syncHandler: SyncHandler
     
     @State private var isCloning: Bool = false

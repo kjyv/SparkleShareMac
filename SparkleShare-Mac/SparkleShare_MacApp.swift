@@ -23,14 +23,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
     weak var window: NSWindow?
     var syncHandler = SyncHandler()
-    private var directoryViewModel = AddDirectoryViewModel()
+    private var settingsViewModel = SettingsViewModel()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
     
     override init() {
         super.init()
         AppDelegate.shared = self
-        directoryViewModel.syncHandler = syncHandler
+        settingsViewModel.syncHandler = syncHandler
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -38,7 +38,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ProcessInfo.processInfo.disableAutomaticTermination("file watcher needs to run")
         // hide dock icon
         NSApp.setActivationPolicy(.accessory)
-        
+
+        // Initialize launch at login (defaults to ON on first launch)
+        _ = LaunchAtLoginManager.shared
+
         //setup observer on sleep wakeup to pull changes right away
         NSWorkspace.shared.notificationCenter.addObserver(self,
                                                           selector: #selector(handleWakeFromSleep),
@@ -54,7 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setIdleStatus()
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showAddDirectoryWindow), keyEquivalent: "a"))
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettingsWindow), keyEquivalent: "a"))
         menu.addItem(NSMenuItem(title: "Force sync", action: #selector(syncAllDirectories), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
@@ -76,7 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
-    @objc func showAddDirectoryWindow() {
+    @objc func showSettingsWindow() {
         if window == nil {
             let newWindow = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
@@ -87,7 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             newWindow.center()
             newWindow.setFrameAutosaveName("Settings")
             newWindow.title = "SparkleShare Settings"
-            newWindow.contentView = NSHostingView(rootView: AddDirectoryView().environmentObject(directoryViewModel).environmentObject(syncHandler))
+            newWindow.contentView = NSHostingView(rootView: SettingsView().environmentObject(settingsViewModel).environmentObject(syncHandler))
             newWindow.isReleasedWhenClosed = false
             window = newWindow
         }

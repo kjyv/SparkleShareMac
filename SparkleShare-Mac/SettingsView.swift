@@ -1,5 +1,5 @@
 //
-//  AddDirectoryView.swift
+//  SettingsView.swift
 //  SparkleShare-Mac
 //
 //  Created by Stefan Bethge on 23.09.24.
@@ -7,8 +7,57 @@
 
 
 import SwiftUI
+import ServiceManagement
 
-class AddDirectoryViewModel: ObservableObject {
+class LaunchAtLoginManager: ObservableObject {
+    static let shared = LaunchAtLoginManager()
+
+    @Published var isEnabled: Bool {
+        didSet {
+            if isEnabled {
+                enableLaunchAtLogin()
+            } else {
+                disableLaunchAtLogin()
+            }
+        }
+    }
+
+    private init() {
+        // Check current status from system
+        let status = SMAppService.mainApp.status
+        let currentlyEnabled = (status == .enabled)
+
+        // Check if this is first launch (no user preference saved yet)
+        let hasLaunchedBefore = UserDefaults.standard.object(forKey: "hasLaunchedBefore") != nil
+
+        if !hasLaunchedBefore {
+            // First launch: default to ON
+            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+            self.isEnabled = true
+            enableLaunchAtLogin()
+        } else {
+            self.isEnabled = currentlyEnabled
+        }
+    }
+
+    private func enableLaunchAtLogin() {
+        do {
+            try SMAppService.mainApp.register()
+        } catch {
+            print("Failed to enable launch at login: \(error)")
+        }
+    }
+
+    private func disableLaunchAtLogin() {
+        do {
+            try SMAppService.mainApp.unregister()
+        } catch {
+            print("Failed to disable launch at login: \(error)")
+        }
+    }
+}
+
+class SettingsViewModel: ObservableObject {
     var syncHandler: SyncHandler!
     @Published var isShowingCloneSheet = false // New state variable
     
@@ -39,15 +88,16 @@ class AddDirectoryViewModel: ObservableObject {
     }
 }
 
-struct AddDirectoryView: View {
-    @EnvironmentObject var viewModel: AddDirectoryViewModel
+struct SettingsView: View {
+    @EnvironmentObject var viewModel: SettingsViewModel
     @EnvironmentObject var syncHandler: SyncHandler
-    
+    @ObservedObject var launchAtLoginManager = LaunchAtLoginManager.shared
+
     var body: some View {
         VStack(alignment: .leading) {
             Text("Synced Projects")
                 .font(.headline)
-            
+
             List {
                 ForEach(syncHandler.monitoredDirectories, id: \.self) { directory in
                     HStack {
@@ -76,10 +126,17 @@ struct AddDirectoryView: View {
                 Button("Add existing directory") {
                     viewModel.addDirectoryUsingPanel()
                 }
-                .padding()
             }
+
+            Spacer()
+                .frame(height: 16)
+
+            Divider()
+
+            Toggle("Launch at Login", isOn: $launchAtLoginManager.isEnabled)
+                .padding(.top, 12)
         }
-        .padding()
+        .padding(20)
         .onDisappear(perform: hide)
         .sheet(isPresented: $viewModel.isShowingCloneSheet) {
             CloneRepositoryView()

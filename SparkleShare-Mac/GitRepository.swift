@@ -21,7 +21,7 @@ class GitRepository {
     }
 
     @discardableResult
-    private func runGitCommand(arguments: [String]) -> (success: Bool, output: String, error: String) {
+    private func runGitCommand(arguments: [String], processHandler: ((Process) -> Void)? = nil) -> (success: Bool, output: String, error: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.currentDirectoryURL = repositoryPath
@@ -30,14 +30,15 @@ class GitRepository {
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_SSH_COMMAND"] = sshCommand
         process.environment = environment
-        
+
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
-        
+
         do {
             try process.run()
+            processHandler?(process)
             process.waitUntilExit()
         } catch {
             return (false, "", "Failed to run git command: \(error)")
@@ -48,7 +49,7 @@ class GitRepository {
 
         let output = String(data: outputData, encoding: .utf8) ?? ""
         let error = String(data: errorData, encoding: .utf8) ?? ""
-        
+
         if !output.isEmpty {
             print("Output of command \"git \(arguments.joined(separator: " ")) \(repositoryPath.path)\":")
             let lines = output.split(whereSeparator: \.isNewline)
@@ -106,8 +107,8 @@ class GitRepository {
         return result
     }
 
-    func addAll() -> (success: Bool, error: String) {
-        let result = runGitCommand(arguments: ["add", "--all"])
+    func addAll(processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {
+        let result = runGitCommand(arguments: ["add", "--all"], processHandler: processHandler)
         if !result.success && !result.error.isEmpty {
             print("Error during \"git add\": \(result.error)")
             return (false, result.error)
@@ -115,8 +116,8 @@ class GitRepository {
         return (true, "")
     }
 
-    func commit(message: String) -> (success: Bool, error: String) {
-        let result = runGitCommand(arguments: ["commit", "-m", message])
+    func commit(message: String, processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {
+        let result = runGitCommand(arguments: ["commit", "-m", message], processHandler: processHandler)
         if !result.success && !result.error.isEmpty {
             print("Error during \"git commit\": \(result.error)")
             return (false, result.error)
@@ -124,8 +125,8 @@ class GitRepository {
         return (true, "")
     }
 
-    func push() -> (success: Bool, error: String) {
-        let result = runGitCommand(arguments: ["push"])
+    func push(processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {
+        let result = runGitCommand(arguments: ["push"], processHandler: processHandler)
         if !result.success && !result.error.isEmpty && result.error != "Everything up-to-date" {
             print("Error during \"git push\": \(result.error)")
             return (false, result.error)
@@ -133,8 +134,8 @@ class GitRepository {
         return (true, "")
     }
 
-    func pull() -> (success: Bool, error: String) {
-        let result = runGitCommand(arguments: ["pull"])
+    func pull(processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {
+        let result = runGitCommand(arguments: ["pull"], processHandler: processHandler)
         if !result.success && !result.error.isEmpty {
             print("Error during \"git pull\": \(result.error)")
             return (false, result.error)

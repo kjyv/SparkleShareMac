@@ -26,17 +26,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     weak var errorWindow: NSWindow?
     var syncHandler = SyncHandler()
     var errorStore = ErrorStore()
+    var operationTracker = OperationTracker()
     private var settingsViewModel = SettingsViewModel()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
     private var errorStoreSubscription: AnyCancellable?
+    private var operationTrackerSubscription: AnyCancellable?
     private var viewErrorsMenuItem: NSMenuItem?
+    private var syncStatusMenuItem: NSMenuItem?
+    private var cancelSyncMenuItem: NSMenuItem?
+    private var statusUpdateTimer: Timer?
 
     override init() {
         super.init()
         AppDelegate.shared = self
         settingsViewModel.syncHandler = syncHandler
         syncHandler.errorStore = errorStore
+        syncHandler.operationTracker = operationTracker
 
         // Subscribe to error store changes to update menu bar icon and menu item visibility
         errorStoreSubscription = errorStore.$errors
@@ -44,6 +50,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .sink { [weak self] errors in
                 self?.updateStatusIcon()
                 self?.viewErrorsMenuItem?.isHidden = errors.isEmpty
+            }
+
+        // Subscribe to operation tracker changes to update menu items
+        operationTrackerSubscription = operationTracker.$currentOperation
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] operation in
+                self?.updateSyncStatusMenuItems(operation: operation)
             }
     }
 
@@ -71,6 +84,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setIdleStatus()
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
+
+        // Sync status menu item (shows current operation and elapsed time)
+        syncStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        syncStatusMenuItem?.isHidden = true
+        syncStatusMenuItem?.isEnabled = false
+        menu.addItem(syncStatusMenuItem!)
+
+        // Cancel sync menu item
+        cancelSyncMenuItem = NSMenuItem(title: "Cancel Sync", action: #selector(cancelCurrentSync), keyEquivalent: "")
+        cancelSyncMenuItem?.isHidden = true
+        menu.addItem(cancelSyncMenuItem!)
+
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettingsWindow), keyEquivalent: "a"))
 
         viewErrorsMenuItem = NSMenuItem(title: "View Errors", action: #selector(showErrorWindow), keyEquivalent: "e")
@@ -110,9 +135,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateStatusIcon() {
         // Only update if not currently syncing
-        if self.statusItem?.button?.image?.name() != "arrow.triangle.2.circlepath" {
+        if !operationTracker.isOperationRunning {
             setIdleStatus()
         }
+    }
+
+    private func updateSyncStatusMenuItems(operation: OperationTracker.Operation?) {
+        if operation != nil {
+            syncStatusMenuItem?.title = operationTracker.statusText
+            syncStatusMenuItem?.isHidden = false
+            cancelSyncMenuItem?.isHidden = false
+            startStatusUpdateTimer()
+        } else {
+            syncStatusMenuItem?.isHidden = true
+            cancelSyncMenuItem?.isHidden = true
+            stopStatusUpdateTimer()
+        }
+    }
+
+    private func startStatusUpdateTimer() {
+        stopStatusUpdateTimer()
+        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            if self.operationTracker.isOperationRunning {
+                self.syncStatusMenuItem?.title = self.operationTracker.statusText
+            }
+        }
+    }
+
+    private func stopStatusUpdateTimer() {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+    }
+
+    @objc private func cancelCurrentSync() {
+        operationTracker.cancelCurrentOperation()
+        setIdleStatus()
     }
     
     @objc func showSettingsWindow() {

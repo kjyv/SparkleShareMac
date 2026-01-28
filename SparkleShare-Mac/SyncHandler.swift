@@ -11,10 +11,12 @@ import AppKit
 class SyncHandler: ObservableObject {
     var monitoredDirectories: [URL] = []
     var errorStore: ErrorStore?
+    var operationTracker: OperationTracker?
 
     private var directoryMonitor: DirectoryMonitor!
     private var gitRepositories: [GitRepository] = []
-    
+    private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .userInitiated)
+
     func appDelegate() -> AppDelegate {
         guard let delegate = AppDelegate.shared else {
             fatalError("Could not get app delegate")
@@ -74,69 +76,114 @@ class SyncHandler: ObservableObject {
     }
     
     func syncChangesUp(in directory: URL, changedFiles: [String]) {
-        appDelegate().setSyncStatus()
-        gitRepositories
-            .filter { $0.repositoryPath.path.hasPrefix(directory.path) }
-            .forEach { repository in
-                let addResult = repository.addAll()
+        let repoName = directory.lastPathComponent
+        let operationId = operationTracker?.startOperation(repositoryName: repoName, operationType: "Syncing")
+
+        DispatchQueue.main.async {
+            self.appDelegate().setSyncStatus()
+        }
+
+        syncQueue.async {
+            let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
+
+            for repository in repositories {
+                let addResult = repository.addAll { process in
+                    if let opId = operationId {
+                        self.operationTracker?.setProcess(process, for: opId)
+                    }
+                }
                 guard addResult.success else {
                     print("Error adding changes for \(repository.repositoryPath.path)")
-                    errorStore?.addError(
+                    self.errorStore?.addError(
                         repositoryPath: repository.repositoryPath.path,
                         operationType: .add,
                         errorMessage: addResult.error.isEmpty ? "Failed to add changes to staging area" : addResult.error
                     )
-                    return
+                    continue
                 }
-                //remove configured directory prefix from first filename for commit message
+
                 var message = changedFiles.first ?? "Sync"
                 message.replace(directory.path, with: "")
 
-                let commitResult = repository.commit(message: "/ '\(message)'")
+                let commitResult = repository.commit(message: "/ '\(message)'") { process in
+                    if let opId = operationId {
+                        self.operationTracker?.setProcess(process, for: opId)
+                    }
+                }
                 guard commitResult.success else {
                     print("Error committing changes for \(repository.repositoryPath.path)")
-                    errorStore?.addError(
+                    self.errorStore?.addError(
                         repositoryPath: repository.repositoryPath.path,
                         operationType: .commit,
                         errorMessage: commitResult.error.isEmpty ? "Failed to commit changes" : commitResult.error
                     )
-                    return
+                    continue
                 }
 
-                let pushResult = repository.push()
+                let pushResult = repository.push { process in
+                    if let opId = operationId {
+                        self.operationTracker?.setProcess(process, for: opId)
+                    }
+                }
                 guard pushResult.success else {
                     print("Error pushing changes for \(repository.repositoryPath.path)")
-                    errorStore?.addError(
+                    self.errorStore?.addError(
                         repositoryPath: repository.repositoryPath.path,
                         operationType: .push,
                         errorMessage: pushResult.error.isEmpty ? "Failed to push changes to remote" : pushResult.error
                     )
-                    return
+                    continue
                 }
 
                 print("Changes pushed for \(repository.repositoryPath.path)")
             }
-        appDelegate().setIdleStatus()
+
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
+                }
+                self.appDelegate().setIdleStatus()
+            }
+        }
     }
     
     func syncChangesDown(in directory: URL) {
-        appDelegate().setSyncStatus()
-        gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path)}
-        .forEach { repository in
-            let pullResult = repository.pull()
-            guard pullResult.success else {
-                print("Error pulling changes for \(repository.repositoryPath.path)")
-                errorStore?.addError(
-                    repositoryPath: repository.repositoryPath.path,
-                    operationType: .pull,
-                    errorMessage: pullResult.error.isEmpty ? "Failed to pull changes from remote" : pullResult.error
-                )
-                return
+        let repoName = directory.lastPathComponent
+        let operationId = operationTracker?.startOperation(repositoryName: repoName, operationType: "Pulling")
+
+        DispatchQueue.main.async {
+            self.appDelegate().setSyncStatus()
+        }
+
+        syncQueue.async {
+            let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
+
+            for repository in repositories {
+                let pullResult = repository.pull { process in
+                    if let opId = operationId {
+                        self.operationTracker?.setProcess(process, for: opId)
+                    }
+                }
+                guard pullResult.success else {
+                    print("Error pulling changes for \(repository.repositoryPath.path)")
+                    self.errorStore?.addError(
+                        repositoryPath: repository.repositoryPath.path,
+                        operationType: .pull,
+                        errorMessage: pullResult.error.isEmpty ? "Failed to pull changes from remote" : pullResult.error
+                    )
+                    continue
+                }
+
+                print("Pulled changes for \(repository.repositoryPath.path)")
             }
 
-            print("Pulled changes for \(repository.repositoryPath.path)")
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
+                }
+                self.appDelegate().setIdleStatus()
+            }
         }
-        appDelegate().setIdleStatus()
     }
         
     func pullAllDirectories() {

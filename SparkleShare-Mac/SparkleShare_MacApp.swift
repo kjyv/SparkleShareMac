@@ -20,7 +20,7 @@ struct SparkleShare: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     static var shared: AppDelegate!
     weak var window: NSWindow?
     weak var errorWindow: NSWindow?
@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var viewErrorsMenuItem: NSMenuItem?
     private var syncStatusMenuItem: NSMenuItem?
     private var cancelSyncMenuItem: NSMenuItem?
+    private var projectsMenuItem: NSMenuItem?
     private var statusUpdateTimer: Timer?
 
     override init() {
@@ -83,7 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setIdleStatus()
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "SparkleShare Mac", action: nil, keyEquivalent: ""))
 
         // Sync status menu item (shows current operation and elapsed time)
         syncStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -96,15 +96,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cancelSyncMenuItem?.isHidden = true
         menu.addItem(cancelSyncMenuItem!)
 
-        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettingsWindow), keyEquivalent: "a"))
+        projectsMenuItem = NSMenuItem(title: "Projects", action: nil, keyEquivalent: "")
+        let projectsSubmenu = NSMenu()
+        projectsSubmenu.delegate = self
+        projectsMenuItem?.submenu = projectsSubmenu
+        menu.addItem(projectsMenuItem!)
+
+        menu.addItem(NSMenuItem(title: "Sync now", action: #selector(syncAllDirectories), keyEquivalent: "s"))
 
         viewErrorsMenuItem = NSMenuItem(title: "View Errors", action: #selector(showErrorWindow), keyEquivalent: "e")
         viewErrorsMenuItem?.isHidden = true
         menu.addItem(viewErrorsMenuItem!)
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettingsWindow), keyEquivalent: ","))
 
-        menu.addItem(NSMenuItem(title: "Force sync", action: #selector(syncAllDirectories), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit SparkleShare", action: #selector(quitApp), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
     
@@ -232,6 +238,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    // MARK: - NSMenuDelegate
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu == projectsMenuItem?.submenu else { return }
+
+        menu.removeAllItems()
+
+        if syncHandler.monitoredDirectories.isEmpty {
+            let emptyItem = NSMenuItem(title: "No projects configured", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+        } else {
+            for directory in syncHandler.monitoredDirectories {
+                let item = NSMenuItem(title: directory.lastPathComponent, action: #selector(openProjectInFinder(_:)), keyEquivalent: "")
+                item.representedObject = directory
+                menu.addItem(item)
+            }
+        }
+    }
+
+    @objc private func openProjectInFinder(_ sender: NSMenuItem) {
+        guard let directory = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.open(directory)
     }
 
 }

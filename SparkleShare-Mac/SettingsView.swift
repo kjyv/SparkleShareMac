@@ -211,8 +211,15 @@ struct ProjectsTab: View {
 
             Divider()
 
-            Toggle("Launch at Login", isOn: $launchAtLoginManager.isEnabled)
-                .padding(.top, 12)
+            HStack {
+                Toggle("Launch at Login", isOn: $launchAtLoginManager.isEnabled)
+                Spacer()
+                Button("Open SSH Keys Folder") {
+                    let sshDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("SparkleShareMac/ssh")
+                    NSWorkspace.shared.open(sshDirectory)
+                }
+            }
+            .padding(.top, 12)
         }
         .padding(20)
     }

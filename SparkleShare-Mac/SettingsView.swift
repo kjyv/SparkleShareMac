@@ -134,6 +134,7 @@ struct ProjectsTab: View {
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     @State private var editingDirectory: URL?
     @State private var editedPath: String = ""
+    @State private var directoryToDelete: URL?
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
@@ -183,7 +184,13 @@ struct ProjectsTab: View {
                         }
                         Spacer()
                         Button(action: {
-                            viewModel.removeDirectory(directory)
+                            NSWorkspace.shared.open(directory)
+                        }) {
+                            Image(systemName: "folder")
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        Button(action: {
+                            directoryToDelete = directory
                         }) {
                             Image(systemName: "trash")
                                 .foregroundColor(.red)
@@ -196,6 +203,22 @@ struct ProjectsTab: View {
             }
             .frame(minHeight: 150)
             .scrollBounceBehavior(.basedOnSize)
+            .alert("Remove Project", isPresented: Binding(
+                get: { directoryToDelete != nil },
+                set: { if !$0 { directoryToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) {
+                    directoryToDelete = nil
+                }
+                Button("Remove", role: .destructive) {
+                    if let directory = directoryToDelete {
+                        viewModel.removeDirectory(directory)
+                        directoryToDelete = nil
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to stop syncing \"\(directoryToDelete?.lastPathComponent ?? "")\"? The local files will not be deleted.")
+            }
 
             HStack {
                 Button("Add remote project") {
@@ -226,9 +249,8 @@ struct ProjectsTab: View {
     }
 
     private func deleteDirectory(at offsets: IndexSet) {
-        for index in offsets {
-            let directory = syncHandler.monitoredDirectories[index]
-            viewModel.removeDirectory(directory)
+        if let index = offsets.first {
+            directoryToDelete = syncHandler.monitoredDirectories[index]
         }
     }
 }

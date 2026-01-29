@@ -6,6 +6,18 @@ This is a native implementation of a SparkleShare client for macOS built with Sw
 As the original C# app is not maintained anymore and building has become more complicated especially on macOS
 with Microsoft discontinuing Visual Studio for Mac, this is possibly a more future proof way of syncing SparkleShare repositories on macOS.
 
+## Installation
+
+1. Download the latest DMG from the [Releases](https://github.com/kjyv/SparkleShareMac/releases) page
+2. Open the DMG and drag SparkleShare-Mac to your Applications folder
+3. Since the app is not code-signed, macOS will quarantine it. Remove the quarantine attribute by running:
+   ```bash
+   xattr -d com.apple.quarantine /Applications/SparkleShare-Mac.app
+   ```
+4. Launch the app from Applications
+
+## Features
+
 It currently does the following:
 
 * Show a menu bar icon with syncing status

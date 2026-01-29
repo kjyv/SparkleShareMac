@@ -81,6 +81,7 @@ class SettingsViewModel: ObservableObject {
     }
 
     func updateDirectory(_ oldDirectory: URL, to newDirectory: URL) {
+        guard oldDirectory != newDirectory else { return }
         guard let index = syncHandler.monitoredDirectories.firstIndex(of: oldDirectory) else { return }
         objectWillChange.send()
         syncHandler.monitoredDirectories[index] = newDirectory

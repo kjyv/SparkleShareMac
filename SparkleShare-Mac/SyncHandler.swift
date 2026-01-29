@@ -15,7 +15,7 @@ class SyncHandler: ObservableObject {
 
     private var directoryMonitor: DirectoryMonitor!
     private var gitRepositories: [GitRepository] = []
-    private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .userInitiated)
+    private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .userInitiated, attributes: .concurrent)
 
     func appDelegate() -> AppDelegate {
         guard let delegate = AppDelegate.shared else {
@@ -83,6 +83,17 @@ class SyncHandler: ObservableObject {
             self.appDelegate().setSyncStatus()
         }
 
+        syncChangesUpInternal(in: directory, changedFiles: changedFiles, operationId: operationId) {
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
+                }
+                self.appDelegate().setIdleStatus()
+            }
+        }
+    }
+
+    private func syncChangesUpInternal(in directory: URL, changedFiles: [String], operationId: UUID? = nil, completion: @escaping () -> Void) {
         syncQueue.async {
             let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
 
@@ -138,12 +149,7 @@ class SyncHandler: ObservableObject {
                 print("Changes pushed for \(repository.repositoryPath.path)")
             }
 
-            DispatchQueue.main.async {
-                if let opId = operationId {
-                    self.operationTracker?.endOperation(id: opId)
-                }
-                self.appDelegate().setIdleStatus()
-            }
+            completion()
         }
     }
     
@@ -155,6 +161,17 @@ class SyncHandler: ObservableObject {
             self.appDelegate().setSyncStatus()
         }
 
+        syncChangesDownInternal(in: directory, operationId: operationId) {
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
+                }
+                self.appDelegate().setIdleStatus()
+            }
+        }
+    }
+
+    private func syncChangesDownInternal(in directory: URL, operationId: UUID? = nil, completion: @escaping () -> Void) {
         syncQueue.async {
             let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
 
@@ -177,6 +194,19 @@ class SyncHandler: ObservableObject {
                 print("Pulled changes for \(repository.repositoryPath.path)")
             }
 
+            completion()
+        }
+    }
+        
+    func pullAllDirectories() {
+        guard !monitoredDirectories.isEmpty else { return }
+
+        let operationId = operationTracker?.startOperation(repositoryName: "All", operationType: "Pulling")
+        DispatchQueue.main.async {
+            self.appDelegate().setSyncStatus()
+        }
+
+        pullAllDirectoriesInternal {
             DispatchQueue.main.async {
                 if let opId = operationId {
                     self.operationTracker?.endOperation(id: opId)
@@ -185,17 +215,94 @@ class SyncHandler: ObservableObject {
             }
         }
     }
-        
-    func pullAllDirectories() {
+
+    private func pullAllDirectoriesInternal(completion: @escaping () -> Void) {
+        guard !monitoredDirectories.isEmpty else {
+            completion()
+            return
+        }
+
+        let group = DispatchGroup()
         for directory in monitoredDirectories {
-            syncChangesDown(in: directory)
+            group.enter()
+            syncChangesDownInternal(in: directory) {
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion()
         }
     }
-    
+
     func pushAllDirectories() {
+        guard !monitoredDirectories.isEmpty else { return }
+
+        let operationId = operationTracker?.startOperation(repositoryName: "All", operationType: "Syncing")
+        DispatchQueue.main.async {
+            self.appDelegate().setSyncStatus()
+        }
+
+        pushAllDirectoriesInternal {
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
+                }
+                self.appDelegate().setIdleStatus()
+            }
+        }
+    }
+
+    private func pushAllDirectoriesInternal(completion: @escaping () -> Void) {
+        guard !monitoredDirectories.isEmpty else {
+            completion()
+            return
+        }
+
+        let group = DispatchGroup()
         for directory in monitoredDirectories {
-            //TODO: determine changed files for commit message?
-            syncChangesUp(in: directory, changedFiles: [])
+            group.enter()
+            syncChangesUpInternal(in: directory, changedFiles: []) {
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion()
+        }
+    }
+
+    func syncAllDirectories() {
+        guard !monitoredDirectories.isEmpty else { return }
+
+        let operationId = operationTracker?.startOperation(repositoryName: "All", operationType: "Syncing")
+        DispatchQueue.main.async {
+            self.appDelegate().setSyncStatus()
+        }
+
+        // For each directory: pull then push (sequential per directory, parallel across directories)
+        let group = DispatchGroup()
+        for directory in monitoredDirectories {
+            group.enter()
+            syncDirectoryInternal(directory: directory) {
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            if let opId = operationId {
+                self.operationTracker?.endOperation(id: opId)
+            }
+            self.appDelegate().setIdleStatus()
+        }
+    }
+
+    /// Syncs a single directory: pull first, then push (sequentially)
+    private func syncDirectoryInternal(directory: URL, completion: @escaping () -> Void) {
+        syncChangesDownInternal(in: directory) {
+            self.syncChangesUpInternal(in: directory, changedFiles: []) {
+                completion()
+            }
         }
     }
     

@@ -17,5 +17,3 @@ func formatGitSSHCommand(authInfo: SSHAuthenticationInfo) -> String {
     """
     return command
 }
-
-

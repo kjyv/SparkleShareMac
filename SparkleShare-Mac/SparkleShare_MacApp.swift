@@ -218,8 +218,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func syncAllDirectories() {
-        syncHandler.pullAllDirectories()
-        syncHandler.pushAllDirectories()
+        syncHandler.syncAllDirectories()
     }
 
     private func setupPullDirectoriesTimer() {

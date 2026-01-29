@@ -79,6 +79,14 @@ class SettingsViewModel: ObservableObject {
         syncHandler.saveDirectoriesToPlist()
         syncHandler.updateGitRepositories()
     }
+
+    func updateDirectory(_ oldDirectory: URL, to newDirectory: URL) {
+        guard let index = syncHandler.monitoredDirectories.firstIndex(of: oldDirectory) else { return }
+        objectWillChange.send()
+        syncHandler.monitoredDirectories[index] = newDirectory
+        syncHandler.saveDirectoriesToPlist()
+        syncHandler.updateGitRepositories()
+    }
     
     func addDirectory(_ url: URL) {
         objectWillChange.send() // Notify SwiftUI of the upcoming change
@@ -123,6 +131,9 @@ struct ProjectsTab: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject var syncHandler: SyncHandler
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+    @State private var editingDirectory: URL?
+    @State private var editedPath: String = ""
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -132,7 +143,43 @@ struct ProjectsTab: View {
             List {
                 ForEach(syncHandler.monitoredDirectories, id: \.self) { directory in
                     HStack {
-                        Text(directory.path)
+                        if editingDirectory == directory {
+                            TextField("Path", text: $editedPath, onCommit: {
+                                let newURL = URL(fileURLWithPath: editedPath)
+                                viewModel.updateDirectory(directory, to: newURL)
+                                editingDirectory = nil
+                            })
+                            .textFieldStyle(.plain)
+                            .focused($isTextFieldFocused)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.accentColor, lineWidth: 1)
+                            )
+                            .padding(.vertical, 2)
+                            .onExitCommand {
+                                editingDirectory = nil
+                            }
+                            .onAppear {
+                                isTextFieldFocused = true
+                            }
+                        } else {
+                            Text(directory.path)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onHover { hovering in
+                                    if hovering {
+                                        NSCursor.iBeam.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                                .onTapGesture {
+                                    editedPath = directory.path
+                                    editingDirectory = directory
+                                }
+                        }
                         Spacer()
                         Button(action: {
                             viewModel.removeDirectory(directory)
@@ -147,6 +194,7 @@ struct ProjectsTab: View {
                 .onDelete(perform: deleteDirectory)
             }
             .frame(minHeight: 150)
+            .scrollBounceBehavior(.basedOnSize)
 
             HStack {
                 Button("Add remote project") {
@@ -216,3 +264,4 @@ struct AboutTab: View {
         .padding(20)
     }
 }
+

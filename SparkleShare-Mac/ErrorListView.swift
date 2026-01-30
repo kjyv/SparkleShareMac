@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ErrorRowView: View {
     let error: SyncError
+    @EnvironmentObject var errorStore: ErrorStore
     @State private var isExpanded: Bool = false
 
     private var formattedTimestamp: String {
@@ -96,6 +97,16 @@ struct ErrorRowView: View {
                 .padding(.bottom, 8)
             }
         }
+        .contextMenu {
+            Button("Copy Error") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(error.errorMessage, forType: .string)
+            }
+            Divider()
+            Button("Ignore errors like this") {
+                errorStore.ignoreError(error)
+            }
+        }
     }
 }
 
@@ -109,18 +120,22 @@ struct ErrorListView: View {
                 Text("Sync Errors")
                     .font(.headline)
                 Spacer()
-                if errorStore.hasErrors {
-                    Button("Clear All") {
-                        errorStore.clearErrors()
+                if errorStore.hasIgnoredErrors {
+                    Button("Reset Ignores") {
+                        errorStore.resetIgnoredErrors()
                     }
                 }
+                Button("Clear All") {
+                    errorStore.clearErrors()
+                }
+                .disabled(!errorStore.hasVisibleErrors)
             }
             .padding()
 
             Divider()
 
             // Content
-            if errorStore.errors.isEmpty {
+            if errorStore.filteredErrors.isEmpty {
                 VStack {
                     Spacer()
                     Image(systemName: "checkmark.circle")
@@ -137,7 +152,7 @@ struct ErrorListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(errorStore.errors.reversed()) { error in
+                    ForEach(errorStore.filteredErrors.reversed()) { error in
                         ErrorRowView(error: error)
                     }
                     .onDelete(perform: deleteErrors)
@@ -152,7 +167,7 @@ struct ErrorListView: View {
 
     private func deleteErrors(at offsets: IndexSet) {
         // Since we reversed the array for display, we need to convert indices
-        let reversedErrors = errorStore.errors.reversed()
+        let reversedErrors = errorStore.filteredErrors.reversed()
         for index in offsets {
             let error = Array(reversedErrors)[index]
             errorStore.removeError(error)

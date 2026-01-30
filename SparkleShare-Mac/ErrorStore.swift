@@ -34,9 +34,36 @@ struct SyncError: Identifiable, Codable {
 
 class ErrorStore: ObservableObject {
     @Published var errors: [SyncError] = []
+    @Published var ignoredErrorMessages: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(ignoredErrorMessages), forKey: "ignoredErrorMessages")
+        }
+    }
+
+    private static let ignoredMessagesKey = "ignoredErrorMessages"
+
+    init() {
+        if let saved = UserDefaults.standard.stringArray(forKey: Self.ignoredMessagesKey) {
+            ignoredErrorMessages = Set(saved)
+        }
+    }
 
     var hasErrors: Bool {
         !errors.isEmpty
+    }
+
+    var hasIgnoredErrors: Bool {
+        !ignoredErrorMessages.isEmpty
+    }
+
+    var filteredErrors: [SyncError] {
+        errors.filter { error in
+            !ignoredErrorMessages.contains(error.errorMessage)
+        }
+    }
+
+    var hasVisibleErrors: Bool {
+        !filteredErrors.isEmpty
     }
 
     func addError(repositoryPath: String, operationType: GitOperationType, errorMessage: String) {
@@ -55,6 +82,18 @@ class ErrorStore: ObservableObject {
     func clearErrors() {
         DispatchQueue.main.async {
             self.errors.removeAll()
+        }
+    }
+
+    func ignoreError(_ error: SyncError) {
+        DispatchQueue.main.async {
+            self.ignoredErrorMessages.insert(error.errorMessage)
+        }
+    }
+
+    func resetIgnoredErrors() {
+        DispatchQueue.main.async {
+            self.ignoredErrorMessages.removeAll()
         }
     }
 }

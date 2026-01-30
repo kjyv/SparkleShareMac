@@ -45,12 +45,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         syncHandler.errorStore = errorStore
         syncHandler.operationTracker = operationTracker
 
-        // Subscribe to error store changes to update menu bar icon and menu item visibility
+        // Subscribe to error store changes to update menu bar icon
         errorStoreSubscription = errorStore.$errors
+            .combineLatest(errorStore.$ignoredErrorMessages)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] errors in
+            .sink { [weak self] _, _ in
                 self?.updateStatusIcon()
-                self?.viewErrorsMenuItem?.isHidden = errors.isEmpty
             }
 
         // Subscribe to operation tracker changes to update menu items
@@ -111,6 +111,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit SparkleShare", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.delegate = self
         statusItem?.menu = menu
     }
     
@@ -125,7 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     @objc func setIdleStatus() {
         // Set original icon after sync (or error icon if there are errors)
         DispatchQueue.main.async {
-            if self.errorStore.hasErrors {
+            if self.errorStore.hasVisibleErrors {
                 self.setErrorStatus()
             } else {
                 self.statusItem?.button?.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Idle")
@@ -243,6 +244,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     // MARK: - NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        // Handle main status bar menu - check Option key for View Errors visibility
+        if menu == statusItem?.menu {
+            let optionPressed = NSEvent.modifierFlags.contains(.option)
+            viewErrorsMenuItem?.isHidden = !optionPressed && errorStore.filteredErrors.isEmpty
+            return
+        }
+
+        // Handle projects submenu
         guard menu == projectsMenuItem?.submenu else { return }
 
         menu.removeAllItems()

@@ -58,7 +58,12 @@ struct ErrorRowView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    if !isExpanded {
+                    if isExpanded {
+                        Text(error.errorMessage)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                    } else {
                         Text(error.errorMessage)
                             .font(.body)
                             .foregroundColor(.primary)
@@ -67,34 +72,13 @@ struct ErrorRowView: View {
                     }
                 }
 
-                Button(action: { isExpanded.toggle() }) {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(BorderlessButtonStyle())
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .foregroundColor(.secondary)
             }
             .padding(.vertical, 8)
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Full Error Message:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    ScrollView {
-                        Text(error.errorMessage)
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundColor(.primary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 150)
-                    .padding(8)
-                    .background(Color(NSColor.textBackgroundColor))
-                    .cornerRadius(4)
-                }
-                .padding(.leading, 36)
-                .padding(.bottom, 8)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isExpanded.toggle()
             }
         }
         .contextMenu {

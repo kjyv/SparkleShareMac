@@ -17,6 +17,18 @@ class SyncHandler: ObservableObject {
     private var gitRepositories: [GitRepository] = []
     private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .userInitiated, attributes: .concurrent)
 
+    // Timer for delayed syncing after file changes were detected
+    private var syncTimers: [URL: Timer] = [:]
+    private let syncDelay: TimeInterval = 5.0
+
+    deinit {
+        // Invalidate all pending timers when the object is deallocated
+        for timer in syncTimers.values {
+            timer.invalidate()
+        }
+        syncTimers.removeAll()
+    }
+
     func appDelegate() -> AppDelegate {
         guard let delegate = AppDelegate.shared else {
             fatalError("Could not get app delegate")
@@ -52,14 +64,14 @@ class SyncHandler: ObservableObject {
         uniqueChanges.forEach { change in
             print("Detected change in \(change)")
         }
-        
+
         // Find all unique prefixes that are also present in monitoredDirectories
         let changedDirectories = self.monitoredDirectories.filter { monitoredDirectory in
             uniqueChanges.contains { change in
                 change.hasPrefix(monitoredDirectory.path)
             }
         }
-        
+
         // for each changed directory, find all changed files in that directory
         var changedFilesForDirectory: [URL: [String]] = [:]
         changedDirectories.forEach { changedDirectory in
@@ -69,13 +81,38 @@ class SyncHandler: ObservableObject {
             }
             changedFilesForDirectory[changedDirectory] = changedFiles
         }
-        
-        changedDirectories.forEach {changedDirectory in
-            self.syncChangesUp(in: changedDirectory, changedFiles: changedFilesForDirectory[changedDirectory] ?? [])
+
+        // Schedule delayed sync for each changed directory, resetting the timer if it already exists
+        changedDirectories.forEach { changedDirectory in
+            scheduleDelayedSync(for: changedDirectory, changedFiles: changedFilesForDirectory[changedDirectory] ?? [])
         }
     }
     
-    func syncChangesUp(in directory: URL, changedFiles: [String]) {
+    // Schedule a delayed sync operation for the given directory
+    private func scheduleDelayedSync(for directory: URL, changedFiles: [String]) {
+        // Cancel any existing timer for this directory
+        if let existingTimer = syncTimers[directory] {
+            existingTimer.invalidate()
+        }
+
+        // Create a new timer that will trigger the sync after the delay
+        let timer = Timer(timeInterval: syncDelay, repeats: false) { [self] _ in
+            // Remove the timer from the dictionary
+            syncTimers.removeValue(forKey: directory)
+
+            // Perform the sync operation
+            performSync(for: directory, changedFiles: changedFiles)
+        }
+
+        // Add timer to the main run loop to ensure it fires reliably
+        RunLoop.main.add(timer, forMode: .common)
+
+        syncTimers[directory] = timer
+    }
+
+    // Perform the actual sync operation (pull first, then commit + push together)
+    private func performSync(for directory: URL, changedFiles: [String]) {
+        print("Starting sync operation for \(directory.lastPathComponent)")
         let repoName = directory.lastPathComponent
         let operationId = operationTracker?.startOperation(repositoryName: repoName, operationType: "Syncing")
 
@@ -83,22 +120,29 @@ class SyncHandler: ObservableObject {
             self.appDelegate().setSyncStatus()
         }
 
-        syncChangesUpInternal(in: directory, changedFiles: changedFiles, operationId: operationId) {
-            DispatchQueue.main.async {
-                if let opId = operationId {
-                    self.operationTracker?.endOperation(id: opId)
+        print("About to pull changes for \(directory.lastPathComponent)")
+        // First pull any remote changes, then commit and push
+        syncChangesDownInternal(in: directory, operationId: operationId) { [self] in
+            print("Pull completed for \(directory.lastPathComponent), now committing and pushing...")
+            // After pulling, commit and push the local changes
+            syncChangesUpInternal(in: directory, changedFiles: changedFiles, operationId: operationId) {
+                print("Commit and push completed for \(directory.lastPathComponent)")
+                DispatchQueue.main.async {
+                    if let opId = operationId {
+                        self.operationTracker?.endOperation(id: opId)
+                    }
+                    self.appDelegate().setIdleStatus()
                 }
-                self.appDelegate().setIdleStatus()
             }
         }
     }
 
     private func syncChangesUpInternal(in directory: URL, changedFiles: [String], operationId: UUID? = nil, completion: @escaping () -> Void) {
-        syncQueue.async {
+        syncQueue.async { [self] in
             let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
 
             for repository in repositories {
-                let addResult = repository.addAll { process in
+                let addResult = repository.addAll { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
                     }
@@ -116,7 +160,7 @@ class SyncHandler: ObservableObject {
                 var message = changedFiles.first ?? "Sync"
                 message.replace(directory.path, with: "")
 
-                let commitResult = repository.commit(message: "/ '\(message)'") { process in
+                let commitResult = repository.commit(message: "/ '\(message)'") { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
                     }
@@ -131,7 +175,7 @@ class SyncHandler: ObservableObject {
                     continue
                 }
 
-                let pushResult = repository.push { process in
+                let pushResult = repository.push { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
                     }
@@ -153,30 +197,12 @@ class SyncHandler: ObservableObject {
         }
     }
     
-    func syncChangesDown(in directory: URL) {
-        let repoName = directory.lastPathComponent
-        let operationId = operationTracker?.startOperation(repositoryName: repoName, operationType: "Pulling")
-
-        DispatchQueue.main.async {
-            self.appDelegate().setSyncStatus()
-        }
-
-        syncChangesDownInternal(in: directory, operationId: operationId) {
-            DispatchQueue.main.async {
-                if let opId = operationId {
-                    self.operationTracker?.endOperation(id: opId)
-                }
-                self.appDelegate().setIdleStatus()
-            }
-        }
-    }
-
     private func syncChangesDownInternal(in directory: URL, operationId: UUID? = nil, completion: @escaping () -> Void) {
-        syncQueue.async {
+        syncQueue.async { [self] in
             let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
 
             for repository in repositories {
-                let pullResult = repository.pull { process in
+                let pullResult = repository.pull { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
                     }

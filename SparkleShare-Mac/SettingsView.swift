@@ -238,13 +238,16 @@ struct ProjectsTab: View {
             }
 
             Spacer()
-                .frame(height: 16)
 
             Divider()
 
             HStack {
                 Toggle("Launch at Login", isOn: $launchAtLoginManager.isEnabled)
                 Spacer()
+                Button("Copy Client ID to Clipboard") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(publicKey, forType: .string)
+                }
                 Button("Open SSH Keys Folder") {
                     let sshDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("SparkleShareMac/ssh")
                     NSWorkspace.shared.open(sshDirectory)
@@ -253,6 +256,16 @@ struct ProjectsTab: View {
             .padding(.top, 12)
         }
         .padding(20)
+    }
+
+    private var publicKey: String {
+        let sshDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("SparkleShareMac/ssh")
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: sshDir.path),
+           let pubFile = files.first(where: { $0.hasSuffix(".pub") }),
+           let key = try? String(contentsOfFile: sshDir.appendingPathComponent(pubFile).path, encoding: .utf8) {
+            return key.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return "No SSH key found"
     }
 
     private func deleteDirectory(at offsets: IndexSet) {

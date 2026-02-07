@@ -5,6 +5,10 @@
 - Experimental: Added Mobile Deployment for automatic renewal of SparkleShare iOS app (development profiles expire after 7 days)
     - Auto-deploy to connected device when profile is about to expire
     - Shows notification when profile is expiring and device is not connected
+    - Visual provisioning status feedback (valid/needs deploy/checking)
+    - Deploy Now button with live script output and cancel support
+    - Deploy script errors are now shown in the error view
+- Copy Client ID (SSH public key) to clipboard from Projects tab
 - Sync changes after 5-second timeout to reduce intermediate commits
 - Allow expanding full error messages in the error list
 - Allow ignoring common errors from the error list

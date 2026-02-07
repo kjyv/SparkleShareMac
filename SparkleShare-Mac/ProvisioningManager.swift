@@ -79,6 +79,28 @@ class ProvisioningManager: ObservableObject {
     private var timer: Timer?
     private var deployProcess: Process?
 
+    /// The expiry date of the profile at the time of the last successful deploy
+    private var deployedExpiryDate: Date? {
+        didSet {
+            if let date = deployedExpiryDate {
+                UserDefaults.standard.set(date, forKey: Keys.deployedExpiryDate)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Keys.deployedExpiryDate)
+            }
+        }
+    }
+
+    /// When we last attempted a deploy (successful or not), used to throttle retries
+    private var lastDeployAttemptDate: Date? {
+        didSet {
+            if let date = lastDeployAttemptDate {
+                UserDefaults.standard.set(date, forKey: Keys.lastDeployAttemptDate)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Keys.lastDeployAttemptDate)
+            }
+        }
+    }
+
     private enum Keys {
         static let mobileDeploymentEnabled = "mobileDeploymentEnabled"
         static let checkProvisionExpiryScriptPath = "checkProvisionExpiryScriptPath"
@@ -86,6 +108,8 @@ class ProvisioningManager: ObservableObject {
         static let nextDeployDate = "nextDeployDate"
         static let expiryDate = "expiryDate"
         static let lastExpiryCheckDate = "lastExpiryCheckDate"
+        static let deployedExpiryDate = "deployedExpiryDate"
+        static let lastDeployAttemptDate = "lastDeployAttemptDate"
     }
 
     init() {
@@ -95,6 +119,8 @@ class ProvisioningManager: ObservableObject {
         self.nextDeployDate = UserDefaults.standard.object(forKey: Keys.nextDeployDate) as? Date
         self.expiryDate = UserDefaults.standard.object(forKey: Keys.expiryDate) as? Date
         self.lastExpiryCheckDate = UserDefaults.standard.object(forKey: Keys.lastExpiryCheckDate) as? Date
+        self.deployedExpiryDate = UserDefaults.standard.object(forKey: Keys.deployedExpiryDate) as? Date
+        self.lastDeployAttemptDate = UserDefaults.standard.object(forKey: Keys.lastDeployAttemptDate) as? Date
         updateStatusFromStoredDates()
     }
 
@@ -108,11 +134,41 @@ class ProvisioningManager: ObservableObject {
 
     private func updateStatusFromStoredDates() {
         guard isEnabled, let expiry = expiryDate else { return }
-        if let deployDate = nextDeployDate, deployDate <= Date() {
+        if needsDeployment() {
             status = .needsDeploy(expiryDate: expiry)
         } else {
             status = .valid(expiryDate: expiry)
         }
+    }
+
+    /// Whether the profile is in a state that requires a deploy.
+    /// Used for UI status — does not consider retry throttling.
+    private func needsDeployment() -> Bool {
+        guard let expiry = expiryDate else { return false }
+
+        // Profile already expired
+        if expiry <= Date() { return true }
+
+        // Within the deploy window (< 1 day to expiry)
+        guard let deployDate = nextDeployDate, deployDate <= Date() else { return false }
+
+        // Already successfully deployed for this profile version
+        if deployedExpiryDate == expiry { return false }
+
+        return true
+    }
+
+    /// Whether we should actually attempt a deploy right now (considers retry throttling).
+    private func shouldAttemptDeploy() -> Bool {
+        guard needsDeployment() else { return false }
+
+        // If we already tried recently, wait 30 minutes before retrying
+        if let lastAttempt = lastDeployAttemptDate,
+           Date().timeIntervalSince(lastAttempt) < 30 * 60 {
+            return false
+        }
+
+        return true
     }
 
     func handleWakeFromSleep() {
@@ -169,17 +225,29 @@ class ProvisioningManager: ObservableObject {
     }
 
     private func evaluateAndDeploy() {
-        guard let deployDate = nextDeployDate else { return }
+        guard let expiry = expiryDate else { return }
 
-        if deployDate <= Date() {
-            runDeploy { [weak self] success in
-                if success {
-                    // After successful deploy, re-check to get new expiry
-                    self?.runExpiryCheck(completion: nil)
-                } else {
-                    // Deploy failed (device not connected) - check if we need notification
-                    self?.checkIfNotificationNeeded()
-                }
+        // If profile is already expired, re-check first (Xcode may have renewed it)
+        if expiry <= Date() {
+            runExpiryCheck { [weak self] in
+                self?.attemptDeployIfReady()
+            }
+            return
+        }
+
+        attemptDeployIfReady()
+    }
+
+    private func attemptDeployIfReady() {
+        guard shouldAttemptDeploy() else { return }
+
+        runDeploy { [weak self] success in
+            if success {
+                // After successful deploy, re-check to get new expiry
+                self?.runExpiryCheck(completion: nil)
+            } else {
+                // Deploy failed (device not connected) - check if we need notification
+                self?.checkIfNotificationNeeded()
             }
         }
     }
@@ -250,7 +318,7 @@ class ProvisioningManager: ObservableObject {
                     self.lastExpiryCheckDate = Date()
                     self.expiryDate = expiry
                     self.nextDeployDate = deployDate
-                    if deployDate <= Date() {
+                    if self.needsDeployment() {
                         self.status = .needsDeploy(expiryDate: expiry)
                         self.checkIfNotificationNeeded()
                     } else {
@@ -293,6 +361,7 @@ class ProvisioningManager: ObservableObject {
 
         isDeploying = true
         deployOutput = ""
+        lastDeployAttemptDate = Date()
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
@@ -349,7 +418,9 @@ class ProvisioningManager: ObservableObject {
                 self.deployProcess = nil
                 self.isDeploying = false
                 self.deployOutput = ""
-                if !success {
+                if success {
+                    self.deployedExpiryDate = self.expiryDate
+                } else {
                     self.errorStore?.addError(
                         repositoryPath: self.deployScriptPath,
                         operationType: .provisioning,

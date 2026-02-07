@@ -14,6 +14,7 @@ enum GitOperationType: String, Codable {
     case push = "Push"
     case pull = "Pull"
     case clone = "Clone"
+    case provisioning = "Provisioning"
 }
 
 struct SyncError: Identifiable, Codable {

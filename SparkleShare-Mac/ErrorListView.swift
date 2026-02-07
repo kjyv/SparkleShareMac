@@ -31,6 +31,8 @@ struct ErrorRowView: View {
             return "arrow.down.circle"
         case .clone:
             return "doc.on.doc"
+        case .provisioning:
+            return "iphone"
         }
     }
 

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import ServiceManagement
+import UniformTypeIdentifiers
 
 class LaunchAtLoginManager: ObservableObject {
     static let shared = LaunchAtLoginManager()
@@ -100,6 +101,7 @@ class SettingsViewModel: ObservableObject {
 struct SettingsView: View {
     @EnvironmentObject var viewModel: SettingsViewModel
     @EnvironmentObject var syncHandler: SyncHandler
+    @EnvironmentObject var provisioningManager: ProvisioningManager
     @ObservedObject var launchAtLoginManager = LaunchAtLoginManager.shared
 
     var body: some View {
@@ -107,6 +109,11 @@ struct SettingsView: View {
             ProjectsTab(viewModel: viewModel, syncHandler: syncHandler, launchAtLoginManager: launchAtLoginManager)
                 .tabItem {
                     Label("Projects", systemImage: "folder")
+                }
+
+            MobileDeploymentTab(provisioningManager: provisioningManager)
+                .tabItem {
+                    Label("Mobile Deployment", systemImage: "iphone")
                 }
 
             AboutTab()
@@ -251,6 +258,127 @@ struct ProjectsTab: View {
     private func deleteDirectory(at offsets: IndexSet) {
         if let index = offsets.first {
             directoryToDelete = syncHandler.monitoredDirectories[index]
+        }
+    }
+}
+
+struct MobileDeploymentTab: View {
+    @ObservedObject var provisioningManager: ProvisioningManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle("Enable Mobile Deployment", isOn: $provisioningManager.isEnabled)
+
+            Text("Automatically re-deploy [SparkleShare iOS](https://github.com/kjyv/SparkleShare-iOS) to a connected device before the provisioning profile expires. This needs Xcode installed and set up. You should have built the project to device successfully already.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Check provisioning expiry script")
+                    .font(.headline)
+                HStack {
+                    TextField("Path to check-provision-expiry.sh", text: $provisioningManager.checkScriptPath)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(!provisioningManager.isEnabled)
+                    Button("Browse") {
+                        browseForScript { path in
+                            provisioningManager.checkScriptPath = path
+                        }
+                    }
+                    .disabled(!provisioningManager.isEnabled)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Deploy to device script")
+                    .font(.headline)
+                HStack {
+                    TextField("Path to deploy-to-device.sh", text: $provisioningManager.deployScriptPath)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(!provisioningManager.isEnabled)
+                    Button("Browse") {
+                        browseForScript { path in
+                            provisioningManager.deployScriptPath = path
+                        }
+                    }
+                    .disabled(!provisioningManager.isEnabled)
+                }
+            }
+
+            if provisioningManager.isEnabled {
+                provisioningStatusView
+
+                if provisioningManager.isDeploying {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(provisioningManager.deployOutput.isEmpty ? "Deploying…" : provisioningManager.deployOutput)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                        Button("Cancel") {
+                            provisioningManager.cancelDeploy()
+                        }
+                    }
+                } else {
+                    Button("Deploy Now") {
+                        provisioningManager.deployNow {
+                            AppDelegate.shared.showErrorWindow()
+                        }
+                    }
+                    .disabled(provisioningManager.deployScriptPath.isEmpty)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(20)
+    }
+
+    @ViewBuilder
+    private var provisioningStatusView: some View {
+        switch provisioningManager.status {
+        case .unchecked:
+            EmptyView()
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking provisioning profile…")
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        case .valid(let expiryDate):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Profile valid until \(expiryDate.formatted(date: .abbreviated, time: .shortened))")
+            }
+            .font(.subheadline)
+        case .needsDeploy(let expiryDate):
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text("Deploy needed — profile expires \(expiryDate.formatted(date: .abbreviated, time: .shortened))")
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private func browseForScript(completion: @escaping (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.shellScript, .plainText]
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                completion(url.path)
+            }
         }
     }
 }

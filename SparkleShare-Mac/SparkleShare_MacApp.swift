@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     var syncHandler = SyncHandler()
     var errorStore = ErrorStore()
     var operationTracker = OperationTracker()
+    var provisioningManager = ProvisioningManager()
     private var settingsViewModel = SettingsViewModel()
     var statusItem: NSStatusItem?
     var pullDirectoriesTimer: Timer?
@@ -44,6 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         settingsViewModel.syncHandler = syncHandler
         syncHandler.errorStore = errorStore
         syncHandler.operationTracker = operationTracker
+        provisioningManager.errorStore = errorStore
 
         // Subscribe to error store changes to update menu bar icon
         errorStoreSubscription = errorStore.$errors
@@ -76,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                                                           name: NSWorkspace.didWakeNotification,
                                                           object: nil)
         setupPullDirectoriesTimer()
+        provisioningManager.startIfEnabled()
         print("Checking all directories for changes...")
         syncAllDirectories()
     }
@@ -191,7 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             newWindow.center()
             newWindow.setFrameAutosaveName("Settings")
             newWindow.title = "SparkleShare Settings"
-            newWindow.contentView = NSHostingView(rootView: SettingsView().environmentObject(settingsViewModel).environmentObject(syncHandler))
+            newWindow.contentView = NSHostingView(rootView: SettingsView().environmentObject(settingsViewModel).environmentObject(syncHandler).environmentObject(provisioningManager))
             newWindow.isReleasedWhenClosed = false
             window = newWindow
         }
@@ -235,6 +238,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     @objc private func handleWakeFromSleep(notification: Notification) {
         print("Detected wake from sleep, checking for updates")
         pullAllDirectories()
+        provisioningManager.handleWakeFromSleep()
     }
 
     @objc private func quitApp() {

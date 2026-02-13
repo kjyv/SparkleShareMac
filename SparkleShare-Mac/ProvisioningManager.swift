@@ -179,7 +179,10 @@ class ProvisioningManager: ObservableObject {
     func deployNow(onFailure: (() -> Void)? = nil) {
         runDeploy { [weak self] success in
             if success {
-                self?.runExpiryCheck(completion: nil)
+                self?.runExpiryCheck { [weak self] in
+                    self?.deployedExpiryDate = self?.expiryDate
+                    self?.updateStatusFromStoredDates()
+                }
             } else {
                 onFailure?()
             }
@@ -244,7 +247,10 @@ class ProvisioningManager: ObservableObject {
         runDeploy { [weak self] success in
             if success {
                 // After successful deploy, re-check to get new expiry
-                self?.runExpiryCheck(completion: nil)
+                self?.runExpiryCheck { [weak self] in
+                    self?.deployedExpiryDate = self?.expiryDate
+                    self?.updateStatusFromStoredDates()
+                }
             } else {
                 // Deploy failed (device not connected) - check if we need notification
                 self?.checkIfNotificationNeeded()
@@ -412,7 +418,10 @@ class ProvisioningManager: ObservableObject {
             }
 
             pipe.fileHandleForReading.readabilityHandler = nil
-            let success = process.terminationStatus == 0
+            // ios-deploy can return a non-zero exit code even after a successful install
+            // (e.g. AMDeviceLookupApplications fails post-install), so also check the output
+            let installCompleted = fullOutput.contains("[100%] InstallComplete")
+            let success = process.terminationStatus == 0 || installCompleted
 
             DispatchQueue.main.async {
                 self.deployProcess = nil

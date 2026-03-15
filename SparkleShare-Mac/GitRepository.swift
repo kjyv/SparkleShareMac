@@ -135,11 +135,23 @@ class GitRepository {
     }
 
     func pull(processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {
-        let result = runGitCommand(arguments: ["pull"], processHandler: processHandler)
-        if !result.success && !result.error.isEmpty {
-            print("Error during \"git pull\": \(result.error)")
-            return (false, result.error)
+        // Fetch remote changes first
+        let fetchResult = runGitCommand(arguments: ["fetch"], processHandler: processHandler)
+        if !fetchResult.success && !fetchResult.error.isEmpty {
+            print("Error during \"git fetch\": \(fetchResult.error)")
+            return (false, fetchResult.error)
         }
+
+        // Try to merge upstream changes
+        let mergeResult = runGitCommand(arguments: ["merge", "@{u}"], processHandler: processHandler)
+        if !mergeResult.success {
+            // Abort the merge to avoid leaving files in an unmerged state
+            runGitCommand(arguments: ["merge", "--abort"])
+            let errorMessage = mergeResult.error.isEmpty ? "Failed to merge remote changes (possible conflict)" : mergeResult.error
+            print("Error during \"git merge\": \(errorMessage)")
+            return (false, errorMessage)
+        }
+
         return (true, "")
     }
 }

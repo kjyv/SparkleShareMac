@@ -50,6 +50,10 @@ class SyncHandler: ObservableObject {
             gitRepositories.append(GitRepository(repositoryPath: localPathURL))
         }
     }
+
+    private func repositories(for directory: URL) -> [GitRepository] {
+        gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
+    }
     
     private func setupDirectoryMonitor() {
         // set up monitor for all directories
@@ -110,7 +114,7 @@ class SyncHandler: ObservableObject {
         syncTimers[directory] = timer
     }
 
-    // Perform the actual sync operation (pull first, then commit + push together)
+    // Perform the actual sync operation (commit first, then pull to merge remote changes, then push)
     private func performSync(for directory: URL, changedFiles: [String]) {
         print("Starting sync operation for \(directory.lastPathComponent)")
         let repoName = directory.lastPathComponent
@@ -120,28 +124,19 @@ class SyncHandler: ObservableObject {
             self.appDelegate().setSyncStatus()
         }
 
-        print("About to pull changes for \(directory.lastPathComponent)")
-        // First pull any remote changes, then commit and push
-        syncChangesDownInternal(in: directory, operationId: operationId) { [self] in
-            print("Pull completed for \(directory.lastPathComponent), now committing and pushing...")
-            // After pulling, commit and push the local changes
-            syncChangesUpInternal(in: directory, changedFiles: changedFiles, operationId: operationId) {
-                print("Commit and push completed for \(directory.lastPathComponent)")
-                DispatchQueue.main.async {
-                    if let opId = operationId {
-                        self.operationTracker?.endOperation(id: opId)
-                    }
-                    self.appDelegate().setIdleStatus()
+        syncDirectoryInternal(directory: directory, changedFiles: changedFiles, operationId: operationId) {
+            DispatchQueue.main.async {
+                if let opId = operationId {
+                    self.operationTracker?.endOperation(id: opId)
                 }
+                self.appDelegate().setIdleStatus()
             }
         }
     }
 
-    private func syncChangesUpInternal(in directory: URL, changedFiles: [String], operationId: UUID? = nil, completion: @escaping () -> Void) {
+    private func commitLocalChanges(in directory: URL, changedFiles: [String], operationId: UUID? = nil, completion: @escaping () -> Void) {
         syncQueue.async { [self] in
-            let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
-
-            for repository in repositories {
+            for repository in self.repositories(for: directory) {
                 let addResult = repository.addAll { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
@@ -175,6 +170,16 @@ class SyncHandler: ObservableObject {
                     continue
                 }
 
+                print("Changes committed for \(repository.repositoryPath.path)")
+            }
+
+            completion()
+        }
+    }
+
+    private func pushChanges(in directory: URL, operationId: UUID? = nil, completion: @escaping () -> Void) {
+        syncQueue.async { [self] in
+            for repository in self.repositories(for: directory) {
                 let pushResult = repository.push { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
@@ -196,12 +201,18 @@ class SyncHandler: ObservableObject {
             completion()
         }
     }
+
+    private func syncChangesUpInternal(in directory: URL, changedFiles: [String], operationId: UUID? = nil, completion: @escaping () -> Void) {
+        commitLocalChanges(in: directory, changedFiles: changedFiles, operationId: operationId) { [self] in
+            pushChanges(in: directory, operationId: operationId) {
+                completion()
+            }
+        }
+    }
     
     private func syncChangesDownInternal(in directory: URL, operationId: UUID? = nil, completion: @escaping () -> Void) {
         syncQueue.async { [self] in
-            let repositories = self.gitRepositories.filter { $0.repositoryPath.path.hasPrefix(directory.path) }
-
-            for repository in repositories {
+            for repository in self.repositories(for: directory) {
                 let pullResult = repository.pull { [self] process in
                     if let opId = operationId {
                         self.operationTracker?.setProcess(process, for: opId)
@@ -251,8 +262,11 @@ class SyncHandler: ObservableObject {
         let group = DispatchGroup()
         for directory in monitoredDirectories {
             group.enter()
-            syncChangesDownInternal(in: directory) {
-                group.leave()
+            // Commit any local changes first so they don't block the merge
+            commitLocalChanges(in: directory, changedFiles: []) {
+                self.syncChangesDownInternal(in: directory) {
+                    group.leave()
+                }
             }
         }
 
@@ -323,11 +337,13 @@ class SyncHandler: ObservableObject {
         }
     }
 
-    /// Syncs a single directory: pull first, then push (sequentially)
-    private func syncDirectoryInternal(directory: URL, completion: @escaping () -> Void) {
-        syncChangesDownInternal(in: directory) {
-            self.syncChangesUpInternal(in: directory, changedFiles: []) {
-                completion()
+    /// Syncs a single directory: commit first, then pull to merge, then push (sequentially)
+    private func syncDirectoryInternal(directory: URL, changedFiles: [String] = [], operationId: UUID? = nil, completion: @escaping () -> Void) {
+        commitLocalChanges(in: directory, changedFiles: changedFiles, operationId: operationId) {
+            self.syncChangesDownInternal(in: directory, operationId: operationId) {
+                self.pushChanges(in: directory, operationId: operationId) {
+                    completion()
+                }
             }
         }
     }

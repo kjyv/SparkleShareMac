@@ -79,6 +79,42 @@ class ProvisioningManager: ObservableObject {
     private var timer: Timer?
     private var deployProcess: Process?
 
+    /// Full login shell environment, captured once.
+    /// Apps launched from Finder receive a minimal launchd environment that may lack
+    /// settings needed by developer tools (e.g. xcodebuild can't find Xcode accounts).
+    private static let shellEnvironment: [String: String]? = {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        let pipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-l", "-c", "env"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+        var env: [String: String] = [:]
+        for line in output.components(separatedBy: "\n") {
+            guard let eqIdx = line.firstIndex(of: "=") else { continue }
+            let key = String(line[line.startIndex..<eqIdx])
+            let value = String(line[line.index(after: eqIdx)...])
+            if !key.isEmpty { env[key] = value }
+        }
+
+        return env.isEmpty ? nil : env
+    }()
+
     /// The expiry date of the profile at the time of the last successful deploy
     private var deployedExpiryDate: Date? {
         didSet {
@@ -285,6 +321,7 @@ class ProvisioningManager: ObservableObject {
             process.currentDirectoryURL = URL(fileURLWithPath: self.checkScriptPath).deletingLastPathComponent()
             process.standardOutput = pipe
             process.standardError = pipe
+            if let env = Self.shellEnvironment { process.environment = env }
 
             do {
                 try process.run()
@@ -379,6 +416,7 @@ class ProvisioningManager: ObservableObject {
             process.currentDirectoryURL = URL(fileURLWithPath: self.deployScriptPath).deletingLastPathComponent()
             process.standardOutput = pipe
             process.standardError = pipe
+            if let env = Self.shellEnvironment { process.environment = env }
 
             DispatchQueue.main.async {
                 self.deployProcess = process

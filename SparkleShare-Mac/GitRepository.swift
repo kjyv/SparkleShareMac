@@ -39,13 +39,19 @@ class GitRepository {
         do {
             try process.run()
             processHandler?(process)
-            process.waitUntilExit()
         } catch {
             return (false, "", "Failed to run git command: \(error)")
         }
 
+        // Drain both pipes while git runs, otherwise git blocks once a pipe buffer (64 KB) is full
+        var errorData = Data()
+        let errorReader = DispatchGroup()
+        DispatchQueue.global(qos: .utility).async(group: errorReader) {
+            errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        }
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        errorReader.wait()
+        process.waitUntilExit()
 
         let output = String(data: outputData, encoding: .utf8) ?? ""
         let error = String(data: errorData, encoding: .utf8) ?? ""
@@ -123,6 +129,21 @@ class GitRepository {
             return (false, result.error)
         }
         return (true, "")
+    }
+
+    /// True if the working tree has changes or HEAD has commits the upstream does not have.
+    /// Errs on the side of true, so a failed check never skips a sync.
+    func needsSync() -> Bool {
+        let result = runGitCommand(arguments: ["status", "--porcelain=v2", "--branch"])
+        guard result.success else { return true }
+        for line in result.output.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix("# branch.ab ") {
+                if !line.hasPrefix("# branch.ab +0 ") { return true }
+            } else if !line.hasPrefix("#") {
+                return true
+            }
+        }
+        return false
     }
 
     func push(processHandler: ((Process) -> Void)? = nil) -> (success: Bool, error: String) {

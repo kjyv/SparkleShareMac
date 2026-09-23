@@ -50,8 +50,7 @@ class DirectoryMonitor {
             var paths: [String] = []
             for i in 0..<numEvents {
                 let path = String(cString: eventPathsPointer[i])
-                // filter out .git path
-                if path.contains(".git") { continue }
+                if path.hasSuffix("/.git") || path.contains("/.git/") { continue }
                 if path.contains(".zim-new~") { continue }
                 paths.append(path)
             }
@@ -73,6 +72,10 @@ class DirectoryMonitor {
         )
 
         if let eventStream = eventStream {
+            // Keeps git's own writes from waking the app. The stream accepts at most 8 exclusion paths,
+            // the path filter in the callback covers the rest.
+            let gitDirectories = monitoredDirectories.prefix(8).map { $0.appendingPathComponent(".git").path } as CFArray
+            FSEventStreamSetExclusionPaths(eventStream, gitDirectories)
             FSEventStreamSetDispatchQueue(eventStream, queue)
             FSEventStreamStart(eventStream)
         }

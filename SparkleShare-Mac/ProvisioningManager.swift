@@ -76,7 +76,7 @@ class ProvisioningManager: ObservableObject {
     @Published var deployOutput: String = ""
 
     weak var errorStore: ErrorStore?
-    private var timer: Timer?
+    private var scheduler: NSBackgroundActivityScheduler?
     private var deployProcess: Process?
 
     /// Full login shell environment, captured once.
@@ -94,14 +94,15 @@ class ProvisioningManager: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return nil
         }
 
-        guard process.terminationStatus == 0 else { return nil }
-
+        // Read before waiting, otherwise the process blocks once the pipe buffer (64 KB) is full
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
         guard let output = String(data: data, encoding: .utf8) else { return nil }
 
         var env: [String: String] = [:]
@@ -233,14 +234,23 @@ class ProvisioningManager: ObservableObject {
 
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
-            self?.checkAndDeployIfNeeded()
+        let scheduler = NSBackgroundActivityScheduler(identifier: "com.sparklesharemac.provisioningcheck")
+        scheduler.repeats = true
+        scheduler.interval = 30 * 60
+        scheduler.tolerance = 5 * 60
+        scheduler.qualityOfService = .utility
+        scheduler.schedule { [weak self] completion in
+            DispatchQueue.main.async {
+                self?.checkAndDeployIfNeeded()
+            }
+            completion(.finished)
         }
+        self.scheduler = scheduler
     }
 
     private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+        scheduler?.invalidate()
+        scheduler = nil
     }
 
     // MARK: - Check & Deploy Logic
@@ -325,7 +335,6 @@ class ProvisioningManager: ObservableObject {
 
             do {
                 try process.run()
-                process.waitUntilExit()
             } catch {
                 DispatchQueue.main.async {
                     self.status = .unchecked
@@ -338,7 +347,9 @@ class ProvisioningManager: ObservableObject {
                 return
             }
 
+            // Read before waiting, otherwise the script blocks once the pipe buffer (64 KB) is full
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             let output = String(data: data, encoding: .utf8) ?? ""
 
             if process.terminationStatus != 0 {

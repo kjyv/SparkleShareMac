@@ -15,7 +15,7 @@ class SyncHandler: ObservableObject {
 
     private var directoryMonitor: DirectoryMonitor!
     private var gitRepositories: [GitRepository] = []
-    private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .userInitiated, attributes: .concurrent)
+    private let syncQueue = DispatchQueue(label: "com.sparklesharemac.sync", qos: .utility, attributes: .concurrent)
 
     // Timer for delayed syncing after file changes were detected
     private var syncTimers: [URL: Timer] = [:]
@@ -58,7 +58,9 @@ class SyncHandler: ObservableObject {
     private func setupDirectoryMonitor() {
         // set up monitor for all directories
         directoryMonitor = DirectoryMonitor(directories: monitoredDirectories) { changedPaths in
-            self.handleDirectoryChanges(changedPaths)
+            DispatchQueue.main.async {
+                self.handleDirectoryChanges(changedPaths)
+            }
         }
     }
     
@@ -116,6 +118,19 @@ class SyncHandler: ObservableObject {
 
     // Perform the actual sync operation (commit first, then pull to merge remote changes, then push)
     private func performSync(for directory: URL, changedFiles: [String]) {
+        // Events also arrive for our own merges and for files git ignores, which need no sync
+        syncQueue.async { [self] in
+            guard repositories(for: directory).contains(where: { $0.needsSync() }) else {
+                print("No local changes in \(directory.lastPathComponent), skipping sync")
+                return
+            }
+            DispatchQueue.main.async {
+                self.startSync(for: directory, changedFiles: changedFiles)
+            }
+        }
+    }
+
+    private func startSync(for directory: URL, changedFiles: [String]) {
         print("Starting sync operation for \(directory.lastPathComponent)")
         let repoName = directory.lastPathComponent
         let operationId = operationTracker?.startOperation(repositoryName: repoName, operationType: "Syncing")
@@ -235,8 +250,11 @@ class SyncHandler: ObservableObject {
         }
     }
         
-    func pullAllDirectories() {
-        guard !monitoredDirectories.isEmpty else { return }
+    func pullAllDirectories(completion: (() -> Void)? = nil) {
+        guard !monitoredDirectories.isEmpty else {
+            completion?()
+            return
+        }
 
         let operationId = operationTracker?.startOperation(repositoryName: "All", operationType: "Pulling")
         DispatchQueue.main.async {
@@ -249,6 +267,7 @@ class SyncHandler: ObservableObject {
                     self.operationTracker?.endOperation(id: opId)
                 }
                 self.appDelegate().setIdleStatus()
+                completion?()
             }
         }
     }
@@ -259,14 +278,13 @@ class SyncHandler: ObservableObject {
             return
         }
 
+        // Local changes are committed by the file watcher. A directory with a pending sync is skipped,
+        // that sync pulls after committing.
         let group = DispatchGroup()
-        for directory in monitoredDirectories {
+        for directory in monitoredDirectories where syncTimers[directory] == nil {
             group.enter()
-            // Commit any local changes first so they don't block the merge
-            commitLocalChanges(in: directory, changedFiles: []) {
-                self.syncChangesDownInternal(in: directory) {
-                    group.leave()
-                }
+            syncChangesDownInternal(in: directory) {
+                group.leave()
             }
         }
 

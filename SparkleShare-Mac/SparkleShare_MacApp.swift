@@ -30,7 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     var provisioningManager = ProvisioningManager()
     private var settingsViewModel = SettingsViewModel()
     var statusItem: NSStatusItem?
-    var pullDirectoriesTimer: Timer?
+    private var pullScheduler: NSBackgroundActivityScheduler?
     private var errorStoreSubscription: AnyCancellable?
     private var operationTrackerSubscription: AnyCancellable?
     private var viewErrorsMenuItem: NSMenuItem?
@@ -38,6 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     private var cancelSyncMenuItem: NSMenuItem?
     private var projectsMenuItem: NSMenuItem?
     private var statusUpdateTimer: Timer?
+    private var isMenuOpen = false
 
     override init() {
         super.init()
@@ -77,7 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                                                           selector: #selector(handleWakeFromSleep),
                                                           name: NSWorkspace.didWakeNotification,
                                                           object: nil)
-        setupPullDirectoriesTimer()
+        setupPullScheduler()
         provisioningManager.startIfEnabled()
         print("Checking all directories for changes...")
         syncAllDirectories()
@@ -155,7 +156,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             syncStatusMenuItem?.title = operationTracker.statusText
             syncStatusMenuItem?.isHidden = false
             cancelSyncMenuItem?.isHidden = false
-            startStatusUpdateTimer()
+            if isMenuOpen {
+                startStatusUpdateTimer()
+            }
         } else {
             syncStatusMenuItem?.isHidden = true
             cancelSyncMenuItem?.isHidden = true
@@ -165,12 +168,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 
     private func startStatusUpdateTimer() {
         stopStatusUpdateTimer()
-        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             if self.operationTracker.isOperationRunning {
                 self.syncStatusMenuItem?.title = self.operationTracker.statusText
             }
         }
+        timer.tolerance = 0.2
+        // An open menu runs the run loop in event tracking mode
+        RunLoop.main.add(timer, forMode: .common)
+        statusUpdateTimer = timer
     }
 
     private func stopStatusUpdateTimer() {
@@ -231,8 +238,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         syncHandler.syncAllDirectories()
     }
 
-    private func setupPullDirectoriesTimer() {
-        pullDirectoriesTimer = Timer.scheduledTimer(timeInterval: 300, target: self, selector: #selector(pullAllDirectories), userInfo: nil, repeats: true)
+    private func setupPullScheduler() {
+        let scheduler = NSBackgroundActivityScheduler(identifier: "com.sparklesharemac.pull")
+        scheduler.repeats = true
+        scheduler.interval = 300
+        scheduler.tolerance = 60
+        scheduler.qualityOfService = .utility
+        scheduler.schedule { [weak self] completion in
+            DispatchQueue.main.async {
+                guard let self = self else {
+                    completion(.finished)
+                    return
+                }
+                self.syncHandler.pullAllDirectories {
+                    completion(.finished)
+                }
+            }
+        }
+        pullScheduler = scheduler
     }
     
     @objc private func handleWakeFromSleep(notification: Notification) {
@@ -246,6 +269,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     }
 
     // MARK: - NSMenuDelegate
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu == statusItem?.menu else { return }
+        isMenuOpen = true
+        if operationTracker.isOperationRunning {
+            syncStatusMenuItem?.title = operationTracker.statusText
+            startStatusUpdateTimer()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu == statusItem?.menu else { return }
+        isMenuOpen = false
+        stopStatusUpdateTimer()
+    }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         // Handle main status bar menu - check Option key for View Errors visibility
